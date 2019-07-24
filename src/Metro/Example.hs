@@ -12,7 +12,7 @@ module Metro.Example
 import           Control.Monad          (void)
 import           Data.Aeson             (FromJSON, parseJSON, withObject, (.:))
 import           Data.Default.Class     (def)
-import           Metro.Conn             (initConnEnv, runConnT, send)
+import           Metro.Conn             (initConnEnv, receive, runConnT, send)
 import           Metro.Example.Device   (initDeviceEnv, sessionGen,
                                          sessionHandler, startDeviceT)
 import           Metro.Example.Types    (Packet (..))
@@ -42,7 +42,8 @@ startMetroServer :: ServerConfig -> IO ()
 startMetroServer ServerConfig {..} = do
   sock <- listen sockPort
   gen <- sessionGen
-  sEnv <- initServerEnv sock (fromIntegral keepalive) () gen packetBody
+  sEnv <- initServerEnv sock (fromIntegral keepalive) () gen $ \_ connEnv ->
+    packetBody <$> runConnT connEnv receive
   void $ forkIO $ startServer sEnv rawSocket sessionHandler
   startWeb (nodeEnvList sEnv) webHost webPort
 

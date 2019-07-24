@@ -40,7 +40,7 @@ data ServerEnv u nid k pkt tp = ServerEnv
   { serveSock   :: Socket
   , serveState  :: TVar Bool
   , nodeEnvList :: IOHashMap nid (NodeEnv1 u nid k pkt tp)
-  , getDeviceId :: pkt -> nid
+  , getDeviceId :: Socket -> ConnEnv tp -> IO nid
   , uEnv        :: u
   , gen         :: IO k
   , keepalive   :: Int64
@@ -72,7 +72,11 @@ instance MonadUnliftIO m => MonadUnliftIO (ServerT u nid k pkt tp m) where
 runServerT :: ServerEnv u nid k pkt tp -> ServerT u nid k pkt tp m a -> m a
 runServerT sEnv = flip runReaderT sEnv . unServerT
 
-initServerEnv :: MonadIO m => Socket -> Int64 -> u -> IO k -> (pkt -> nid) -> m (ServerEnv u nid k pkt tp)
+initServerEnv
+  :: MonadIO m
+  => Socket -> Int64 -> u -> IO k
+  -> (Socket -> ConnEnv tp -> IO nid)
+  -> m (ServerEnv u nid k pkt tp)
 initServerEnv serveSock keepalive uEnv gen getDeviceId = do
   serveState <- newTVarIO True
   nodeEnvList <- newIOHashMap
@@ -105,18 +109,19 @@ serveOnce
   -> ServerT u nid k pkt tp m ()
 serveOnce mk sess = do
   (sock', _) <- liftIO . accept =<< asks serveSock
-  void $ async $ handleConn (mk sock') sess
+  void $ async $ handleConn sock' (mk sock') sess
 
 handleConn
   :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Hashable nid, Eq k, Hashable k, PacketId k pkt, Packet pkt)
-  => TransportConfig tp
+  => Socket
+  -> TransportConfig tp
   -> SessionT k pkt tp m ()
   -> ServerT u nid k pkt tp m ()
-handleConn tpconfig sess = do
+handleConn sock tpconfig sess = do
   ServerEnv {..} <- ask
   connEnv <- initConnEnv tpconfig
 
-  nid <- getDeviceId <$> runConnT connEnv receive
+  nid <- liftIO $ getDeviceId sock connEnv
 
   liftIO $ putStrLn $ "Device: " ++ show nid
 
