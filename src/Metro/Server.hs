@@ -41,7 +41,7 @@ data ServerEnv u nid k pkt tp = ServerEnv
   { serveSock   :: Socket
   , serveState  :: TVar Bool
   , nodeEnvList :: IOHashMap nid (NodeEnv1 u nid k pkt tp)
-  , getDeviceId :: Socket -> ConnEnv tp -> IO (Maybe nid)
+  , getNodeId   :: Socket -> ConnEnv tp -> IO (Maybe nid)
   , uEnv        :: u
   , gen         :: IO k
   , keepalive   :: Int64
@@ -78,7 +78,7 @@ initServerEnv
   => Socket -> Int64 -> u -> IO k
   -> (Socket -> ConnEnv tp -> IO (Maybe nid))
   -> m (ServerEnv u nid k pkt tp)
-initServerEnv serveSock keepalive uEnv gen getDeviceId = do
+initServerEnv serveSock keepalive uEnv gen getNodeId = do
   serveState <- newTVarIO True
   nodeEnvList <- newIOHashMap
   pure ServerEnv{..}
@@ -122,7 +122,7 @@ handleConn sock tpconfig sess = do
   ServerEnv {..} <- ask
   connEnv <- initConnEnv tpconfig
 
-  mnid <- liftIO $ getDeviceId sock connEnv
+  mnid <- liftIO $ getNodeId sock connEnv
 
   forM_ mnid $ \nid -> do
     env0 <- initEnv1 connEnv uEnv nid gen
