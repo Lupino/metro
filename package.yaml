@@ -1,0 +1,79 @@
+name:                metro
+version:             0.1.0.0
+github:              "Lupino/metro"
+license:             BSD3
+author:              "Lupino"
+maintainer:          "lmjubuntu@gmail.com"
+copyright:           "MIT"
+
+extra-source-files:
+- README.md
+- ChangeLog.md
+
+# Metadata used when publishing your package
+# synopsis:            Short description of your package
+# category:            Web
+
+# To avoid duplicated efforts in documentation and dealing with the
+# complications of embedding Haddock markup inside cabal files, it is
+# common to point users to the README.md file.
+description:         Please see the README on GitHub at <https://github.com/Lupino/metro#readme>
+
+dependencies:
+- base >= 4.7 && < 5
+
+library:
+  source-dirs: src
+  dependencies:
+  - bytestring
+  - binary
+  - unliftio
+  - transformers
+  - mtl
+  - hashable
+  - unordered-containers
+  - aeson
+  - directory
+  - network
+  - data-default-class
+  - scotty
+  - warp
+  - streaming-commons
+  - http-types
+  - unix-time
+
+executables:
+  metro-server:
+    main:                metro-server.hs
+    source-dirs:         app
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - metro
+    - yaml
+  metro-client:
+    main:                metro-client.hs
+    source-dirs:         app
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - metro
+    - yaml
+
+tests:
+  metro-test:
+    main:                Spec.hs
+    source-dirs:         test
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - metro
+    - binary
+    - data-default-class
+    - hex

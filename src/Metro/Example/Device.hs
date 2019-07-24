@@ -1,0 +1,56 @@
+{-# LANGUAGE FlexibleContexts  #-}
+{-# LANGUAGE OverloadedStrings #-}
+
+module Metro.Example.Device
+  ( DeviceT
+  , DeviceEnv
+  , initDeviceEnv
+  , sessionGen
+  , sessionHandler
+  , runDeviceT
+  , startDeviceT
+  , request
+  ) where
+
+import           Data.ByteString     (ByteString)
+import           Data.Default.Class  (def)
+import           Data.Word           (Word16)
+import           Metro.Conn          (ConnEnv)
+import           Metro.Example.Types
+import           Metro.Node          (NodeEnv1, NodeT, initEnv1, runNodeT1,
+                                      startNodeT)
+import qualified Metro.Node          as N (request)
+import           Metro.Session       (SessionT, makeResponse_)
+import           Metro.Transport     (Transport)
+import           UnliftIO
+
+type DeviceT = NodeT () ByteString Word16 Packet
+
+type DeviceEnv tp = NodeEnv1 () ByteString Word16 Packet tp
+
+initDeviceEnv :: MonadIO m => ConnEnv tp -> ByteString -> m (DeviceEnv tp)
+initDeviceEnv connEnv nid = do
+  gen <- liftIO sessionGen
+  initEnv1 connEnv () nid gen
+
+sessionGen :: IO (IO Word16)
+sessionGen = do
+  gen <- newTVarIO 1
+  return $ atomically $ do
+    v <- readTVar gen
+    writeTVar gen $! (if v == maxBound then 1 else v + 1)
+    return v
+
+sessionHandler
+  :: (MonadUnliftIO m, Transport tp)
+  => SessionT Word16 Packet tp m ()
+sessionHandler = makeResponse_ . const $ Just def {packetBody = "pong"}
+
+runDeviceT :: Monad m => DeviceEnv tp -> DeviceT tp m a -> m a
+runDeviceT  = runNodeT1
+
+startDeviceT :: (MonadUnliftIO m, Transport tp) => DeviceEnv tp -> m ()
+startDeviceT env = runDeviceT env $ startNodeT sessionHandler
+
+request :: (MonadUnliftIO m, Transport tp) => ByteString -> DeviceT tp m (Maybe ByteString)
+request body = fmap packetBody <$> N.request def { packetBody = body }
