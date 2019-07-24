@@ -4,7 +4,7 @@ a simple tcp socket server framework
 
 ## Quick start with example
 
-```
+```haskell
 import Metro.Class
 import Metro.Node
 import Metro.Session (SessionT, makeResponse_)
