@@ -30,8 +30,8 @@ sessionHandler = makeResponse_ $ \pkt -> ...
 sessionGen :: IO CustomPacketId
 sessionGen = ..
 
-getDeviceId :: CustomPacket -> NodeId
-getDeviceId pkt = ..
+prepare :: Socket -> ConnEnv tp -> IO (Maybe (NodeId, CustomEnv))
+prepare sock connEnv = Just ...
 
 keepalive = 300
 
@@ -39,6 +39,6 @@ bind_port = "tcp://:8080"
 
 startExampleServer = do
   sock <- listen bind_port
-  sEnv <- initServerEnv sock (fromIntegral keepalive) (CustomEnv {..}) sessionGen getDeviceId
+  sEnv <- initServerEnv sock (fromIntegral keepalive) sessionGen prepare
   void $ forkIO $ startServer sEnv rawSocket sessionHandler
 ```
