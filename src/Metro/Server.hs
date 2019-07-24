@@ -13,7 +13,8 @@ module Metro.Server
   , initServerEnv
   ) where
 
-import           Control.Monad              (forever, mzero, unless, void, when)
+import           Control.Monad              (forM_, forever, mzero, unless,
+                                             void, when)
 import           Control.Monad.Reader.Class (MonadReader (ask), asks)
 import           Control.Monad.Trans.Class  (MonadTrans, lift)
 import           Control.Monad.Trans.Maybe  (runMaybeT)
@@ -40,7 +41,7 @@ data ServerEnv u nid k pkt tp = ServerEnv
   { serveSock   :: Socket
   , serveState  :: TVar Bool
   , nodeEnvList :: IOHashMap nid (NodeEnv1 u nid k pkt tp)
-  , getDeviceId :: Socket -> ConnEnv tp -> IO nid
+  , getDeviceId :: Socket -> ConnEnv tp -> IO (Maybe nid)
   , uEnv        :: u
   , gen         :: IO k
   , keepalive   :: Int64
@@ -75,7 +76,7 @@ runServerT sEnv = flip runReaderT sEnv . unServerT
 initServerEnv
   :: MonadIO m
   => Socket -> Int64 -> u -> IO k
-  -> (Socket -> ConnEnv tp -> IO nid)
+  -> (Socket -> ConnEnv tp -> IO (Maybe nid))
   -> m (ServerEnv u nid k pkt tp)
 initServerEnv serveSock keepalive uEnv gen getDeviceId = do
   serveState <- newTVarIO True
@@ -121,20 +122,19 @@ handleConn sock tpconfig sess = do
   ServerEnv {..} <- ask
   connEnv <- initConnEnv tpconfig
 
-  nid <- liftIO $ getDeviceId sock connEnv
+  mnid <- liftIO $ getDeviceId sock connEnv
 
-  liftIO $ putStrLn $ "Device: " ++ show nid
+  forM_ mnid $ \nid -> do
+    env0 <- initEnv1 connEnv uEnv nid gen
 
-  env0 <- initEnv1 connEnv uEnv nid gen
+    env1 <- atomically $ do
+      v <- HM.lookupSTM nodeEnvList nid
+      HM.insertSTM nodeEnvList nid env0
+      pure v
 
-  env1 <- atomically $ do
-    v <- HM.lookupSTM nodeEnvList nid
-    HM.insertSTM nodeEnvList nid env0
-    pure v
+    mapM_ (`runNodeT1` stopNodeT) env1
 
-  mapM_ (`runNodeT1` stopNodeT) env1
-
-  lift . runNodeT1 env0 $ startNodeT sess
+    lift . runNodeT1 env0 $ startNodeT sess
 
 startServer
   :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Hashable nid, Eq k, Hashable k, PacketId k pkt, Packet pkt)
