@@ -41,8 +41,7 @@ data ServerEnv u nid k pkt tp = ServerEnv
   { serveSock   :: Socket
   , serveState  :: TVar Bool
   , nodeEnvList :: IOHashMap nid (NodeEnv1 u nid k pkt tp)
-  , getNodeId   :: Socket -> ConnEnv tp -> IO (Maybe nid)
-  , uEnv        :: u
+  , prepare     :: Socket -> ConnEnv tp -> IO (Maybe (nid, u))
   , gen         :: IO k
   , keepalive   :: Int64
   }
@@ -75,10 +74,10 @@ runServerT sEnv = flip runReaderT sEnv . unServerT
 
 initServerEnv
   :: MonadIO m
-  => Socket -> Int64 -> u -> IO k
-  -> (Socket -> ConnEnv tp -> IO (Maybe nid))
+  => Socket -> Int64 -> IO k
+  -> (Socket -> ConnEnv tp -> IO (Maybe (nid, u)))
   -> m (ServerEnv u nid k pkt tp)
-initServerEnv serveSock keepalive uEnv gen getNodeId = do
+initServerEnv serveSock keepalive gen prepare = do
   serveState <- newTVarIO True
   nodeEnvList <- newIOHashMap
   pure ServerEnv{..}
@@ -122,9 +121,9 @@ handleConn sock tpconfig sess = do
   ServerEnv {..} <- ask
   connEnv <- initConnEnv tpconfig
 
-  mnid <- liftIO $ getNodeId sock connEnv
+  mnid <- liftIO $ prepare sock connEnv
 
-  forM_ mnid $ \nid -> do
+  forM_ mnid $ \(nid, uEnv) -> do
     env0 <- initEnv1 connEnv uEnv nid gen
 
     env1 <- atomically $ do

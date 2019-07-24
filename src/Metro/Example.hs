@@ -42,8 +42,9 @@ startMetroServer :: ServerConfig -> IO ()
 startMetroServer ServerConfig {..} = do
   sock <- listen sockPort
   gen <- sessionGen
-  sEnv <- initServerEnv sock (fromIntegral keepalive) () gen $ \_ connEnv ->
-    Just . packetBody <$> runConnT connEnv receive
+  sEnv <- initServerEnv sock (fromIntegral keepalive) gen $ \_ connEnv -> do
+    nid <- packetBody <$> runConnT connEnv receive
+    return $ Just (nid, ())
   void $ forkIO $ startServer sEnv rawSocket sessionHandler
   startWeb (nodeEnvList sEnv) webHost webPort
 
