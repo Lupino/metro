@@ -42,3 +42,5 @@ startExampleServer = do
   sEnv <- initServerEnv sock (fromIntegral keepalive) sessionGen prepare
   void $ forkIO $ startServer sEnv rawSocket sessionHandler
 ```
+
+more see [src/Metro/Example.hs](src/Metro/Example.hs)
