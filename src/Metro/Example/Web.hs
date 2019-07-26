@@ -9,11 +9,11 @@ import           Data.ByteString                 (ByteString)
 import           Data.ByteString.Lazy            (fromStrict, toStrict)
 import           Data.Default.Class              (def)
 import           Data.Streaming.Network.Internal (HostPreference (Host))
+import           Metro                           (Transport)
 import           Metro.Example.Device            (DeviceEnv, request,
                                                   runDeviceT)
 import           Metro.IOHashMap                 (IOHashMap)
 import qualified Metro.IOHashMap                 as HM (lookup)
-import           Metro.Transport                 (Transport)
 import           Network.HTTP.Types              (status500)
 import           Network.Wai.Handler.Warp        (setHost, setPort)
 import           UnliftIO

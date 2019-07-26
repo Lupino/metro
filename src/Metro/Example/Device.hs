@@ -15,13 +15,11 @@ module Metro.Example.Device
 import           Data.ByteString     (ByteString)
 import           Data.Default.Class  (def)
 import           Data.Word           (Word16)
-import           Metro.Conn          (ConnEnv)
+import           Metro               (ConnEnv, NodeEnv1, NodeT, SessionT,
+                                      Transport, initEnv1, makeResponse_,
+                                      runNodeT1, startNodeT)
+import qualified Metro               as N (request)
 import           Metro.Example.Types
-import           Metro.Node          (NodeEnv1, NodeT, initEnv1, runNodeT1,
-                                      startNodeT)
-import qualified Metro.Node          as N (request)
-import           Metro.Session       (SessionT, makeResponse_)
-import           Metro.Transport     (Transport)
 import           UnliftIO
 
 type DeviceT = NodeT () ByteString Word16 Packet

@@ -31,6 +31,7 @@ import           Metro.Node                 (NodeEnv1, getEpochTime, getNodeId,
                                              getTimer, initEnv1, runNodeT1,
                                              startNodeT, stopNodeT)
 import           Metro.Session              (SessionT)
+import           Metro.Socket               (listen)
 import           Metro.Transport            (Transport, TransportConfig)
 import           Network.Socket             (Socket, accept)
 import qualified Network.Socket             as Socket (close)
@@ -74,10 +75,11 @@ runServerT sEnv = flip runReaderT sEnv . unServerT
 
 initServerEnv
   :: MonadIO m
-  => Socket -> Int64 -> IO k
+  => String -> Int64 -> IO k
   -> (Socket -> ConnEnv tp -> IO (Maybe (nid, u)))
   -> m (ServerEnv u nid k pkt tp)
-initServerEnv serveSock keepalive gen prepare = do
+initServerEnv hostPort keepalive gen prepare = do
+  serveSock <- liftIO $ listen hostPort
   serveState <- newTVarIO True
   nodeEnvList <- newIOHashMap
   pure ServerEnv{..}

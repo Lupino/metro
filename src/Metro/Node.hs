@@ -14,10 +14,9 @@ module Metro.Node
   , runNodeT
   , startNodeT
   , withSessionT
-  , isAlive
+  , nodeState
   , stopNodeT
   , env
-  , newSessionEnv
   , request
   -- combine node env and conn env
   , NodeEnv1 (..)
@@ -181,14 +180,14 @@ startNodeT
   => SessionT k pkt tp m () -> NodeT u nid k pkt tp m ()
 startNodeT sessionHandler = do
   void . runMaybeT . forever $ do
-    alive <- lift isAlive
+    alive <- lift nodeState
     if alive then lift $ tryMainLoop sessionHandler
              else mzero
 
   doFeedError
 
-isAlive :: MonadIO m => NodeT u nid k pkt tp m Bool
-isAlive = readTVarIO =<< asks nodeStatus
+nodeState :: MonadIO m => NodeT u nid k pkt tp m Bool
+nodeState = readTVarIO =<< asks nodeStatus
 
 doFeedError :: MonadIO m => NodeT u nid k pkt tp m ()
 doFeedError =
@@ -209,7 +208,7 @@ request
   :: (MonadUnliftIO m, Transport tp, Packet pkt, PacketId k pkt, Eq k, Hashable k)
   => pkt -> NodeT u nid k pkt tp m (Maybe pkt)
 request pkt = do
-  alive <- isAlive
+  alive <- nodeState
   if alive then
     withSessionT $ do
       S.send pkt

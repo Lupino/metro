@@ -12,7 +12,7 @@ module Metro.Session
   , SessionT
   , runSessionT
   , send
-  , aAlive
+  , sessionState
   , feed
   , receive
   , readerSize
@@ -63,8 +63,8 @@ instance FromConn (SessionT k pkt) where
 runSessionT :: SessionEnv k pkt -> SessionT k pkt tp m a -> ConnT tp m a
 runSessionT aEnv = flip runReaderT aEnv . unSessionT
 
-aAlive :: MonadIO m => SessionT k pkt tp m Bool
-aAlive = readTVarIO =<< fromConn statusTVar
+sessionState :: MonadIO m => SessionT k pkt tp m Bool
+sessionState = readTVarIO =<< fromConn statusTVar
 
 send
   :: (MonadUnliftIO m, Transport tp, Packet pkt, PacketId k pkt)
