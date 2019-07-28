@@ -14,10 +14,10 @@ import           Data.Aeson             (FromJSON, parseJSON, withObject, (.:))
 import           Data.Default.Class     (def)
 import           Metro                  (ServerEnv (..), initConnEnv,
                                          initServerEnv, runConnT, startServer)
-import           Metro.Conn             (receive, send)
+import           Metro.Conn             (close, receive, send)
 import           Metro.Example.Device   (initDeviceEnv, sessionGen,
                                          sessionHandler, startDeviceT)
-import           Metro.Example.Types    (Packet (..))
+import           Metro.Example.Types    (Command (..), Packet (..))
 import           Metro.Example.Web      (startWeb)
 import           Metro.Transport.Socket (rawSocket, socketUri)
 import           UnliftIO.Concurrent    (forkIO)
@@ -41,8 +41,12 @@ startMetroServer :: ServerConfig -> IO ()
 startMetroServer ServerConfig {..} = do
   gen <- sessionGen
   sEnv <- initServerEnv sockPort (fromIntegral keepalive) gen $ \_ connEnv -> do
-    nid <- packetBody <$> runConnT connEnv receive
-    return $ Just (nid, ())
+    cmd <- packetCmd <$> runConnT connEnv receive
+    case cmd of
+      Data nid -> return $ Just (nid, ())
+      _        -> do
+        runConnT connEnv close
+        return Nothing
   void $ forkIO $ startServer sEnv rawSocket sessionHandler
   startWeb (nodeEnvList sEnv) webHost webPort
 
@@ -60,7 +64,7 @@ startMetroClient ClientConfig {..} = do
   connEnv <- initConnEnv (socketUri cSockPort)
   runConnT connEnv $ send $ def
     { packetId = 0
-    , packetBody = "metro-client"
+    , packetCmd = Data "metro-client"
     }
   env0 <- initDeviceEnv connEnv "metro-client"
   startDeviceT env0

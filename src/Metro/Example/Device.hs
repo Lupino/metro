@@ -42,7 +42,7 @@ sessionGen = do
 sessionHandler
   :: (MonadUnliftIO m, Transport tp)
   => SessionT Word16 Packet tp m ()
-sessionHandler = makeResponse_ . const $ Just def {packetBody = "pong"}
+sessionHandler = makeResponse_ . const $ Just def {packetCmd = Data "pong"}
 
 runDeviceT :: Monad m => DeviceEnv tp -> DeviceT tp m a -> m a
 runDeviceT  = runNodeT1
@@ -50,5 +50,5 @@ runDeviceT  = runNodeT1
 startDeviceT :: (MonadUnliftIO m, Transport tp) => DeviceEnv tp -> m ()
 startDeviceT env = runDeviceT env $ startNodeT sessionHandler
 
-request :: (MonadUnliftIO m, Transport tp) => ByteString -> DeviceT tp m (Maybe ByteString)
-request body = fmap packetBody <$> N.request def { packetBody = body }
+request :: (MonadUnliftIO m, Transport tp) => Command -> DeviceT tp m (Maybe Command)
+request cmd = fmap packetCmd <$> N.request def { packetCmd = cmd }
