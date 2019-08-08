@@ -33,6 +33,8 @@ data Command
   | Upload ByteString ByteString
   | Download ByteString
   | Data ByteString
+  | Append ByteString ByteString -- append a file
+  | End -- close the client
   deriving (Show, Eq)
 
 instance Binary Command where
@@ -46,6 +48,11 @@ instance Binary Command where
         Upload fn . toStrict <$> getRemainingLazyByteString
       3 -> Download . toStrict <$> getRemainingLazyByteString
       4 -> Data . toStrict <$> getRemainingLazyByteString
+      5 -> do
+        fnL <- fromIntegral <$> getWord8
+        fn <- getByteString fnL
+        Append fn . toStrict <$> getRemainingLazyByteString
+      6 -> return End
       _ -> fail "No such command"
 
   put (Run bs) = do
@@ -62,12 +69,20 @@ instance Binary Command where
   put (Data bs) = do
     putWord8 4
     putByteString bs
+  put (Append fn bs) = do
+    putWord8 5
+    putWord8 $ fromIntegral $ B.length fn
+    putByteString fn
+    putByteString bs
+  put End = putWord8 6
 
 calcCommandLength :: Command -> Int
 calcCommandLength (Run bs)       = B.length bs + 1
 calcCommandLength (Upload fn bs) = B.length fn + B.length bs + 2
 calcCommandLength (Download fn)  = B.length fn + 1
 calcCommandLength (Data bs)      = B.length bs + 1
+calcCommandLength (Append fn bs) = B.length fn + B.length bs + 2
+calcCommandLength End            = 1
 
 data Packet = Packet
   { packetLength :: PacketLength

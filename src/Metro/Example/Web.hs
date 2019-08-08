@@ -31,7 +31,9 @@ application :: (Transport tp) => IOHashMap ByteString (DeviceEnv tp) -> ScottyM 
 application devicesEnv = do
   post "/api/run/:uuid/" $ requestHandler devicesEnv
   get "/api/download/:uuid/" $ downloadHandler devicesEnv
-  put "/api/upload/:uuid/" $ uploadHandler devicesEnv
+  put "/api/upload/:uuid/" $ uploadHandler Upload devicesEnv
+  put "/api/append/:uuid/" $ uploadHandler Append devicesEnv
+  post "/api/end/:uuid/" $ endHandler devicesEnv
 
 requestHandler :: (Transport tp) => IOHashMap ByteString (DeviceEnv tp) -> ActionM ()
 requestHandler devicesEnv = do
@@ -47,8 +49,11 @@ requestHandler devicesEnv = do
 
       responseCmd r
 
-uploadHandler :: (Transport tp) => IOHashMap ByteString (DeviceEnv tp) -> ActionM ()
-uploadHandler devicesEnv = do
+uploadHandler
+  :: (Transport tp)
+  => (ByteString -> ByteString -> Command)
+  -> IOHashMap ByteString (DeviceEnv tp) -> ActionM ()
+uploadHandler cmd devicesEnv = do
   ip <- param "uuid"
   fn <- param "fileName"
   wb <- body
@@ -58,7 +63,7 @@ uploadHandler devicesEnv = do
       status status500
       json $ object [ "err" .= ("Device is offline" :: String) ]
     Just env1 -> do
-      r <- liftIO $ runDeviceT env1 $ request $ Upload fn $ toStrict wb
+      r <- liftIO $ runDeviceT env1 $ request $ cmd fn $ toStrict wb
 
       responseCmd r
 
@@ -73,6 +78,19 @@ downloadHandler devicesEnv = do
       json $ object [ "err" .= ("Device is offline" :: String) ]
     Just env1 -> do
       r <- liftIO $ runDeviceT env1 $ request $ Download fn
+
+      responseCmd r
+
+endHandler :: (Transport tp) => IOHashMap ByteString (DeviceEnv tp) -> ActionM ()
+endHandler devicesEnv = do
+  ip <- param "uuid"
+  env0 <- HM.lookup devicesEnv ip
+  case env0 of
+    Nothing -> do
+      status status500
+      json $ object [ "err" .= ("Device is offline" :: String) ]
+    Just env1 -> do
+      r <- liftIO $ runDeviceT env1 $ request End
 
       responseCmd r
 
