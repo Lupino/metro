@@ -41,7 +41,7 @@ sessionGen = do
 
 sessionHandler
   :: (MonadUnliftIO m, Transport tp)
-  => SessionT Word16 Packet tp m ()
+  => SessionT () ByteString Word16 Packet tp m ()
 sessionHandler = makeResponse_ . const $ Just def {packetCmd = Data "pong"}
 
 runDeviceT :: Monad m => DeviceEnv tp -> DeviceT tp m a -> m a

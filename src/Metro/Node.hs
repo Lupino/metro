@@ -43,8 +43,8 @@ import           Metro.Conn                 (ConnEnv, ConnT, FromConn (..),
 import           Metro.IOHashMap            (IOHashMap, newIOHashMap)
 import qualified Metro.IOHashMap            as HM (delete, elems, insert,
                                                    lookup)
-import           Metro.Session              hiding (newSessionEnv, receive,
-                                             send)
+import           Metro.Session              (SessionEnv, SessionT, feed,
+                                             runSessionT)
 import qualified Metro.Session              as S (newSessionEnv, receive, send)
 import           Metro.Transport            (Transport)
 import           UnliftIO
@@ -53,7 +53,7 @@ import           UnliftIO
 data NodeEnv u nid k pkt = NodeEnv
   { uEnv        :: u
   , nodeStatus  :: TVar Bool
-  , sessionList :: IOHashMap k (SessionEnv k pkt)
+  , sessionList :: IOHashMap k (SessionEnv u nid k pkt)
   , sessionGen  :: IO k
   , nodeTimer   :: TVar Int64
   , nodeId      :: nid
@@ -107,23 +107,23 @@ initEnv1 connEnv uEnv nid gen = do
   nodeEnv <- initEnv uEnv nid gen
   return NodeEnv1 {..}
 
-runSessionT_ :: Monad m => SessionEnv k pkt -> SessionT k pkt tp m a -> NodeT u nid k pkt tp m a
+runSessionT_ :: Monad m => SessionEnv u nid k pkt -> SessionT u nid k pkt tp m a -> NodeT u nid k pkt tp m a
 runSessionT_ aEnv = fromConn . runSessionT aEnv
 
-withSessionT :: (MonadUnliftIO m, Eq k, Hashable k) => SessionT k pkt tp m a -> NodeT u nid k pkt tp m a
+withSessionT :: (MonadUnliftIO m, Eq k, Hashable k) => SessionT u nid k pkt tp m a -> NodeT u nid k pkt tp m a
 withSessionT sessionT =
   bracket nextSessionId removeSession $ \sid -> do
     aEnv <- newSessionEnv_ sid
     runSessionT_ aEnv sessionT
 
-newSessionEnv_ :: (MonadIO m, Eq k, Hashable k) => k -> NodeT u nid k pkt tp m (SessionEnv k pkt)
+newSessionEnv_ :: (MonadIO m, Eq k, Hashable k) => k -> NodeT u nid k pkt tp m (SessionEnv u nid k pkt)
 newSessionEnv_ sid = do
   NodeEnv{..} <- ask
-  sEnv <- S.newSessionEnv sid []
+  sEnv <- S.newSessionEnv uEnv nodeId sid []
   HM.insert sessionList sid sEnv
   return sEnv
 
-newSessionEnv :: (MonadIO m, Eq k, Hashable k) => NodeT u nid k pkt tp m (SessionEnv k pkt)
+newSessionEnv :: (MonadIO m, Eq k, Hashable k) => NodeT u nid k pkt tp m (SessionEnv u nid k pkt)
 newSessionEnv = newSessionEnv_ =<< nextSessionId
 
 nextSessionId :: MonadIO m => NodeT u nid k pkt tp m k
@@ -136,7 +136,7 @@ removeSession mid = do
 
 tryMainLoop
   :: (MonadUnliftIO m, Transport tp, Packet pkt, PacketId k pkt, Eq k, Hashable k)
-  => SessionT k pkt tp m () -> NodeT u nid k pkt tp m ()
+  => SessionT u nid k pkt tp m () -> NodeT u nid k pkt tp m ()
 tryMainLoop sessionHandler = do
   r <- tryAny $ mainLoop sessionHandler
   case r of
@@ -145,7 +145,7 @@ tryMainLoop sessionHandler = do
 
 mainLoop
   :: (MonadUnliftIO m, Transport tp, Packet pkt, PacketId k pkt, Eq k, Hashable k)
-  => SessionT k pkt tp m () -> NodeT u nid k pkt tp m ()
+  => SessionT u nid k pkt tp m () -> NodeT u nid k pkt tp m ()
 mainLoop sessionHandler = do
   NodeEnv{..} <- ask
   pkt <- fromConn receive
@@ -154,7 +154,7 @@ mainLoop sessionHandler = do
 
 tryDoFeed
   :: (MonadUnliftIO m, Transport tp, Packet pkt, PacketId k pkt, Eq k, Hashable k)
-  => pkt -> SessionT k pkt tp m () -> NodeT u nid k pkt tp m ()
+  => pkt -> SessionT u nid k pkt tp m () -> NodeT u nid k pkt tp m ()
 tryDoFeed pkt sessionHandler = do
   r <- tryAny $ doFeed pkt sessionHandler
   case r of
@@ -163,7 +163,7 @@ tryDoFeed pkt sessionHandler = do
 
 doFeed
   :: (MonadIO m, Packet pkt, PacketId k pkt, Eq k, Hashable k)
-  => pkt -> SessionT k pkt tp m () -> NodeT u nid k pkt tp m ()
+  => pkt -> SessionT u nid k pkt tp m () -> NodeT u nid k pkt tp m ()
 doFeed pkt sessionHandler = do
   NodeEnv{..} <- ask
   v <- HM.lookup sessionList $ getPacketId pkt
@@ -172,12 +172,12 @@ doFeed pkt sessionHandler = do
       runSessionT_ aEnv $ feed $ Just pkt
     Nothing    -> do
       let sid = getPacketId pkt
-      sEnv <- S.newSessionEnv sid [Just pkt]
+      sEnv <- S.newSessionEnv uEnv nodeId sid [Just pkt]
       runSessionT_ sEnv sessionHandler
 
 startNodeT
   :: (MonadUnliftIO m, Transport tp, Packet pkt, PacketId k pkt, Eq k, Hashable k)
-  => SessionT k pkt tp m () -> NodeT u nid k pkt tp m ()
+  => SessionT u nid k pkt tp m () -> NodeT u nid k pkt tp m ()
 startNodeT sessionHandler = do
   void . runMaybeT . forever $ do
     alive <- lift nodeState
@@ -192,7 +192,7 @@ nodeState = readTVarIO =<< asks nodeStatus
 doFeedError :: MonadIO m => NodeT u nid k pkt tp m ()
 doFeedError =
   asks sessionList >>= HM.elems >>= mapM_ go
-  where go :: MonadIO m => SessionEnv k pkt -> NodeT u nid k pkt tp m ()
+  where go :: MonadIO m => SessionEnv u nid k pkt -> NodeT u nid k pkt tp m ()
         go aEnv = runSessionT_ aEnv $ feed Nothing
 
 stopNodeT :: (MonadIO m, Transport tp) => NodeT u nid k pkt tp m ()

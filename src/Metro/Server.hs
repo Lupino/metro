@@ -87,7 +87,7 @@ initServerEnv hostPort keepalive gen prepare = do
 serveForever
   :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Hashable nid, Eq k, Hashable k, PacketId k pkt, Packet pkt)
   => (Socket -> TransportConfig tp)
-  -> SessionT k pkt tp m ()
+  -> SessionT u nid k pkt tp m ()
   -> ServerT u nid k pkt tp m ()
 serveForever mk sess = do
   state <- asks serveState
@@ -100,14 +100,14 @@ serveForever mk sess = do
 tryServeOnce
   :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Hashable nid, Eq k, Hashable k, PacketId k pkt, Packet pkt)
   => (Socket -> TransportConfig tp)
-  -> SessionT k pkt tp m ()
+  -> SessionT u nid k pkt tp m ()
   -> ServerT u nid k pkt tp m (Either SomeException ())
 tryServeOnce mk sess = tryAny (serveOnce mk sess)
 
 serveOnce
   :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Hashable nid, Eq k, Hashable k, PacketId k pkt, Packet pkt)
   => (Socket -> TransportConfig tp)
-  -> SessionT k pkt tp m ()
+  -> SessionT u nid k pkt tp m ()
   -> ServerT u nid k pkt tp m ()
 serveOnce mk sess = do
   (sock', _) <- liftIO . accept =<< asks serveSock
@@ -117,7 +117,7 @@ handleConn
   :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Hashable nid, Eq k, Hashable k, PacketId k pkt, Packet pkt)
   => Socket
   -> TransportConfig tp
-  -> SessionT k pkt tp m ()
+  -> SessionT u nid k pkt tp m ()
   -> ServerT u nid k pkt tp m ()
 handleConn sock tpconfig sess = do
   ServerEnv {..} <- ask
@@ -141,7 +141,7 @@ startServer
   :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Hashable nid, Eq k, Hashable k, PacketId k pkt, Packet pkt)
   => ServerEnv u nid k pkt tp
   -> (Socket -> TransportConfig tp)
-  -> SessionT k pkt tp m ()
+  -> SessionT u nid k pkt tp m ()
   -> m ()
 startServer sEnv mk sess = do
   runCheckNodeState (keepalive sEnv) (nodeEnvList sEnv)
