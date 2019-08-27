@@ -18,6 +18,7 @@ module Metro.Node
   , stopNodeT
   , env
   , request
+  , requestAndRetry
 
   -- combine node env and conn env
   , NodeEnv1 (..)
@@ -28,7 +29,7 @@ module Metro.Node
   , getNodeId
   ) where
 
-import           Control.Monad              (forever, mzero, void, when)
+import           Control.Monad              (forM, forever, mzero, void, when)
 import           Control.Monad.Reader.Class (MonadReader (ask), asks)
 import           Control.Monad.Trans.Class  (MonadTrans (..))
 import           Control.Monad.Trans.Maybe  (runMaybeT)
@@ -210,12 +211,24 @@ env = asks uEnv
 request
   :: (MonadUnliftIO m, Transport tp, Packet pkt, PacketId k pkt, Eq k, Hashable k)
   => Maybe Int64 -> pkt -> NodeT u nid k pkt tp m (Maybe pkt)
-request sTout pkt = do
+request sTout = requestAndRetry sTout Nothing
+
+requestAndRetry
+  :: (MonadUnliftIO m, Transport tp, Packet pkt, PacketId k pkt, Eq k, Hashable k)
+  => Maybe Int64 -> Maybe Int -> pkt -> NodeT u nid k pkt tp m (Maybe pkt)
+requestAndRetry sTout retryTout pkt = do
   alive <- nodeState
   if alive then
     withSessionT sTout $ do
       S.send pkt
-      S.receive
+      t <- forM retryTout $ \tout ->
+        async $ forever $ do
+          threadDelay $ tout * 1000 * 1000
+          S.send pkt
+      ret <- S.receive
+      mapM_ cancel t
+      return ret
+
 
   else return Nothing
 
