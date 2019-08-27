@@ -2,3 +2,4 @@ web_host: 127.0.0.1
 web_port: 8080
 socket: tcp://127.0.0.1:8090
 keepalive: 300 # seconds
+session_timeout: 100 # seconds

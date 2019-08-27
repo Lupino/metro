@@ -27,6 +27,7 @@ data ServerConfig = ServerConfig
   , webPort   :: Int
   , sockPort  :: String
   , keepalive :: Int
+  , sessTout  :: Int
   }
 
 instance FromJSON ServerConfig where
@@ -35,12 +36,13 @@ instance FromJSON ServerConfig where
     webPort   <- o .: "web_port"
     sockPort  <- o .: "socket"
     keepalive <- o .: "keepalive"
+    sessTout  <- o .: "session_timeout"
     return ServerConfig{..}
 
 startMetroServer :: ServerConfig -> IO ()
 startMetroServer ServerConfig {..} = do
   gen <- sessionGen
-  sEnv <- initServerEnv sockPort (fromIntegral keepalive) gen $ \_ connEnv -> do
+  sEnv <- initServerEnv sockPort (fromIntegral keepalive) (fromIntegral sessTout) gen $ \_ connEnv -> do
     cmd <- packetCmd <$> runConnT connEnv receive
     case cmd of
       Data nid -> return $ Just (nid, ())

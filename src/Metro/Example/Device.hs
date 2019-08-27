@@ -29,7 +29,7 @@ type DeviceEnv tp = NodeEnv1 () ByteString Word16 Packet tp
 initDeviceEnv :: MonadIO m => ConnEnv tp -> ByteString -> m (DeviceEnv tp)
 initDeviceEnv connEnv nid = do
   gen <- liftIO sessionGen
-  initEnv1 connEnv () nid gen
+  initEnv1 connEnv () nid 100 gen
 
 sessionGen :: IO (IO Word16)
 sessionGen = do
@@ -51,4 +51,4 @@ startDeviceT :: (MonadUnliftIO m, Transport tp) => DeviceEnv tp -> m ()
 startDeviceT env = runDeviceT env $ startNodeT sessionHandler
 
 request :: (MonadUnliftIO m, Transport tp) => Command -> DeviceT tp m (Maybe Command)
-request cmd = fmap packetCmd <$> N.request def { packetCmd = cmd }
+request cmd = fmap packetCmd <$> N.request Nothing def { packetCmd = cmd }

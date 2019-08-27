@@ -27,12 +27,13 @@ import           Metro.Conn
 import           Metro.IOHashMap            (IOHashMap, newIOHashMap)
 import qualified Metro.IOHashMap            as HM (delete, elems, insertSTM,
                                                    lookupSTM)
-import           Metro.Node                 (NodeEnv1, getEpochTime, getNodeId,
-                                             getTimer, initEnv1, runNodeT1,
-                                             startNodeT, stopNodeT)
+import           Metro.Node                 (NodeEnv1, getNodeId, getTimer,
+                                             initEnv1, runNodeT1, startNodeT,
+                                             stopNodeT)
 import           Metro.Session              (SessionT)
 import           Metro.Socket               (listen)
 import           Metro.Transport            (Transport, TransportConfig)
+import           Metro.Utils                (getEpochTime)
 import           Network.Socket             (Socket, accept)
 import qualified Network.Socket             as Socket (close)
 import           UnliftIO
@@ -45,6 +46,7 @@ data ServerEnv u nid k pkt tp = ServerEnv
   , prepare     :: Socket -> ConnEnv tp -> IO (Maybe (nid, u))
   , gen         :: IO k
   , keepalive   :: Int64
+  , defSessTout :: Int64
   }
 
 
@@ -75,10 +77,10 @@ runServerT sEnv = flip runReaderT sEnv . unServerT
 
 initServerEnv
   :: MonadIO m
-  => String -> Int64 -> IO k
+  => String -> Int64 -> Int64 -> IO k
   -> (Socket -> ConnEnv tp -> IO (Maybe (nid, u)))
   -> m (ServerEnv u nid k pkt tp)
-initServerEnv hostPort keepalive gen prepare = do
+initServerEnv hostPort keepalive defSessTout gen prepare = do
   serveSock <- liftIO $ listen hostPort
   serveState <- newTVarIO True
   nodeEnvList <- newIOHashMap
@@ -126,7 +128,7 @@ handleConn sock tpconfig sess = do
   mnid <- liftIO $ prepare sock connEnv
 
   forM_ mnid $ \(nid, uEnv) -> do
-    env0 <- initEnv1 connEnv uEnv nid gen
+    env0 <- initEnv1 connEnv uEnv nid defSessTout gen
 
     env1 <- atomically $ do
       v <- HM.lookupSTM nodeEnvList nid

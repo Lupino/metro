@@ -20,6 +20,8 @@ module Metro.Session
   , getNodeId
   , env
 
+  , isTimeout
+
   , makeResponse
   , makeResponse_
   ) where
@@ -27,22 +29,27 @@ module Metro.Session
 import           Control.Monad.Reader.Class (MonadReader, asks)
 import           Control.Monad.Trans.Class  (MonadTrans (..))
 import           Control.Monad.Trans.Reader (ReaderT (..), runReaderT)
+import           Data.Int                   (Int64)
 import           Metro.Class                (Packet, PacketId, setPacketId)
 import           Metro.Conn                 (ConnT, FromConn (..), statusTVar)
 import qualified Metro.Conn                 as Conn (send)
 import           Metro.Transport            (Transport)
+import           Metro.Utils                (getEpochTime)
 import           UnliftIO
 
 data SessionEnv u nid k pkt = SessionEnv
-  { sessionData :: TVar [Maybe pkt]
-  , sessionNid  :: nid
-  , sessionId   :: k
-  , sessionUEnv :: u
+  { sessionData    :: TVar [Maybe pkt]
+  , sessionNid     :: nid
+  , sessionId      :: k
+  , sessionUEnv    :: u
+  , sessionTimer   :: TVar Int64
+  , sessionTimeout :: Int64
   }
 
-newSessionEnv :: MonadIO m => u -> nid -> k -> [Maybe pkt] -> m (SessionEnv u nid k pkt)
-newSessionEnv sessionUEnv sessionNid sessionId pkts = do
+newSessionEnv :: MonadIO m => u -> nid -> k -> Int64 -> [Maybe pkt] -> m (SessionEnv u nid k pkt)
+newSessionEnv sessionUEnv sessionNid sessionId sessionTimeout pkts = do
   sessionData <- newTVarIO pkts
+  sessionTimer <- newTVarIO =<< getEpochTime
   pure SessionEnv {..}
 
 newtype SessionT u nid k pkt tp m a = SessionT { unSessionT :: ReaderT (SessionEnv u nid k pkt) (ConnT tp m) a }
@@ -80,6 +87,7 @@ send pkt = do
 feed :: (MonadIO m) => Maybe pkt -> SessionT u nid k pkt tp m ()
 feed pkt = do
   reader <- asks sessionData
+  setTimer =<< getEpochTime
   atomically . modifyTVar' reader $ \v -> v ++ [pkt]
 
 receive :: (MonadIO m, Transport tp) => SessionT u nid k pkt tp m (Maybe pkt)
@@ -120,3 +128,18 @@ makeResponse_
   :: (MonadUnliftIO m, Transport tp, Packet pkt, PacketId k pkt)
   => (pkt -> Maybe pkt) -> SessionT u nid k pkt tp m ()
 makeResponse_ f = makeResponse (pure . f)
+
+getTimer :: MonadIO m => SessionT u nid k pkt tp m Int64
+getTimer = readTVarIO =<< asks sessionTimer
+
+setTimer :: MonadIO m => Int64 -> SessionT u nid k pkt tp m ()
+setTimer t = do
+  v <- asks sessionTimer
+  atomically $ writeTVar v t
+
+isTimeout :: MonadIO m => SessionT u nid k pkt tp m Bool
+isTimeout = do
+  t <- getTimer
+  tout <- asks sessionTimeout
+  now <- getEpochTime
+  return $ (t + tout) < now
