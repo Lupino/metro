@@ -34,7 +34,8 @@ import           Metro.Session              (SessionT)
 import           Metro.Socket               (listen)
 import           Metro.Transport            (Transport, TransportConfig)
 import           Metro.Utils                (getEpochTime)
-import           Network.Socket             (Socket, accept)
+import           Network.Socket             (Socket, SocketOption (KeepAlive),
+                                             accept, setSocketOption)
 import qualified Network.Socket             as Socket (close)
 import           UnliftIO
 import           UnliftIO.Concurrent        (threadDelay)
@@ -112,8 +113,9 @@ serveOnce
   -> SessionT u nid k pkt tp m ()
   -> ServerT u nid k pkt tp m ()
 serveOnce mk sess = do
-  (sock', _) <- liftIO . accept =<< asks serveSock
-  void $ async $ handleConn sock' (mk sock') sess
+  (sock, _) <- liftIO . accept =<< asks serveSock
+  liftIO $ setSocketOption sock KeepAlive 1
+  void $ async $ handleConn sock (mk sock) sess
 
 handleConn
   :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Hashable nid, Eq k, Hashable k, PacketId k pkt, Packet pkt)
@@ -146,7 +148,7 @@ startServer
   -> SessionT u nid k pkt tp m ()
   -> m ()
 startServer sEnv mk sess = do
-  runCheckNodeState (keepalive sEnv) (nodeEnvList sEnv)
+  when (keepalive sEnv > 0) $ runCheckNodeState (keepalive sEnv) (nodeEnvList sEnv)
   runServerT sEnv $ serveForever mk sess
   liftIO $ Socket.close $ serveSock sEnv
 
