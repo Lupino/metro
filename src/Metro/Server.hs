@@ -22,7 +22,8 @@ import           Control.Monad.Trans.Reader (ReaderT (..), runReaderT)
 import           Data.Either                (isLeft)
 import           Data.Hashable
 import           Data.Int                   (Int64)
-import           Metro.Class                (Packet (..), PacketId (..))
+import           Metro.Class                (PacketId (..), RecvPacket (..),
+                                             SendPacket (..))
 import           Metro.Conn
 import           Metro.IOHashMap            (IOHashMap, newIOHashMap)
 import qualified Metro.IOHashMap            as HM (delete, elems, insertSTM,
@@ -88,7 +89,7 @@ initServerEnv hostPort keepalive defSessTout gen prepare = do
   pure ServerEnv{..}
 
 serveForever
-  :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Hashable nid, Eq k, Hashable k, PacketId k pkt, Packet pkt)
+  :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Hashable nid, Eq k, Hashable k, PacketId k pkt, RecvPacket pkt, SendPacket pkt)
   => (Socket -> TransportConfig tp)
   -> SessionT u nid k pkt tp m ()
   -> ServerT u nid k pkt tp m ()
@@ -101,14 +102,14 @@ serveForever mk sess = do
     unless alive mzero
 
 tryServeOnce
-  :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Hashable nid, Eq k, Hashable k, PacketId k pkt, Packet pkt)
+  :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Hashable nid, Eq k, Hashable k, PacketId k pkt, RecvPacket pkt, SendPacket pkt)
   => (Socket -> TransportConfig tp)
   -> SessionT u nid k pkt tp m ()
   -> ServerT u nid k pkt tp m (Either SomeException ())
 tryServeOnce mk sess = tryAny (serveOnce mk sess)
 
 serveOnce
-  :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Hashable nid, Eq k, Hashable k, PacketId k pkt, Packet pkt)
+  :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Hashable nid, Eq k, Hashable k, PacketId k pkt, RecvPacket pkt, SendPacket pkt)
   => (Socket -> TransportConfig tp)
   -> SessionT u nid k pkt tp m ()
   -> ServerT u nid k pkt tp m ()
@@ -118,7 +119,7 @@ serveOnce mk sess = do
   void $ async $ handleConn sock (mk sock) sess
 
 handleConn
-  :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Hashable nid, Eq k, Hashable k, PacketId k pkt, Packet pkt)
+  :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Hashable nid, Eq k, Hashable k, PacketId k pkt, RecvPacket pkt, SendPacket pkt)
   => Socket
   -> TransportConfig tp
   -> SessionT u nid k pkt tp m ()
@@ -142,7 +143,7 @@ handleConn sock tpconfig sess = do
     lift . runNodeT1 env0 $ startNodeT sess
 
 startServer
-  :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Hashable nid, Eq k, Hashable k, PacketId k pkt, Packet pkt)
+  :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Hashable nid, Eq k, Hashable k, PacketId k pkt, RecvPacket pkt, SendPacket pkt)
   => ServerEnv u nid k pkt tp
   -> (Socket -> TransportConfig tp)
   -> SessionT u nid k pkt tp m ()

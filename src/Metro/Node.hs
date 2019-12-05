@@ -37,7 +37,8 @@ import           Control.Monad.Trans.Reader (ReaderT (..), runReaderT)
 import           Data.Hashable
 import           Data.Int                   (Int64)
 import           Data.Maybe                 (fromMaybe)
-import           Metro.Class                (Packet, PacketId, getPacketId)
+import           Metro.Class                (PacketId, RecvPacket, SendPacket,
+                                             getPacketId)
 import           Metro.Conn                 (ConnEnv, ConnT, FromConn (..),
                                              close, receive, runConnT)
 import           Metro.IOHashMap            (IOHashMap, newIOHashMap)
@@ -137,7 +138,7 @@ removeSession mid = do
   HM.delete ref mid
 
 tryMainLoop
-  :: (MonadUnliftIO m, Transport tp, Packet pkt, PacketId k pkt, Eq k, Hashable k)
+  :: (MonadUnliftIO m, Transport tp, RecvPacket pkt, SendPacket pkt, PacketId k pkt, Eq k, Hashable k)
   => SessionT u nid k pkt tp m () -> NodeT u nid k pkt tp m ()
 tryMainLoop sessionHandler = do
   r <- tryAny $ mainLoop sessionHandler
@@ -146,7 +147,7 @@ tryMainLoop sessionHandler = do
     Right _ -> pure ()
 
 mainLoop
-  :: (MonadUnliftIO m, Transport tp, Packet pkt, PacketId k pkt, Eq k, Hashable k)
+  :: (MonadUnliftIO m, Transport tp, RecvPacket pkt, SendPacket pkt, PacketId k pkt, Eq k, Hashable k)
   => SessionT u nid k pkt tp m () -> NodeT u nid k pkt tp m ()
 mainLoop sessionHandler = do
   NodeEnv{..} <- ask
@@ -155,7 +156,7 @@ mainLoop sessionHandler = do
   void . async $ tryDoFeed pkt sessionHandler
 
 tryDoFeed
-  :: (MonadUnliftIO m, Transport tp, Packet pkt, PacketId k pkt, Eq k, Hashable k)
+  :: (MonadUnliftIO m, Transport tp, RecvPacket pkt, PacketId k pkt, Eq k, Hashable k)
   => pkt -> SessionT u nid k pkt tp m () -> NodeT u nid k pkt tp m ()
 tryDoFeed pkt sessionHandler = do
   r <- tryAny $ doFeed pkt sessionHandler
@@ -164,7 +165,7 @@ tryDoFeed pkt sessionHandler = do
     Right _ -> pure ()
 
 doFeed
-  :: (MonadIO m, Packet pkt, PacketId k pkt, Eq k, Hashable k)
+  :: (MonadIO m, RecvPacket pkt, PacketId k pkt, Eq k, Hashable k)
   => pkt -> SessionT u nid k pkt tp m () -> NodeT u nid k pkt tp m ()
 doFeed pkt sessionHandler = do
   NodeEnv{..} <- ask
@@ -178,7 +179,7 @@ doFeed pkt sessionHandler = do
       runSessionT_ sEnv sessionHandler
 
 startNodeT
-  :: (MonadUnliftIO m, Transport tp, Packet pkt, PacketId k pkt, Eq k, Hashable k)
+  :: (MonadUnliftIO m, Transport tp, RecvPacket pkt, SendPacket pkt, PacketId k pkt, Eq k, Hashable k)
   => SessionT u nid k pkt tp m () -> NodeT u nid k pkt tp m ()
 startNodeT sessionHandler = do
   sess <- runCheckSessionState
@@ -209,12 +210,12 @@ env :: Monad m => NodeT u nid k pkt tp m u
 env = asks uEnv
 
 request
-  :: (MonadUnliftIO m, Transport tp, Packet pkt, PacketId k pkt, Eq k, Hashable k)
+  :: (MonadUnliftIO m, Transport tp, RecvPacket pkt, SendPacket pkt, PacketId k pkt, Eq k, Hashable k)
   => Maybe Int64 -> pkt -> NodeT u nid k pkt tp m (Maybe pkt)
 request sTout = requestAndRetry sTout Nothing
 
 requestAndRetry
-  :: (MonadUnliftIO m, Transport tp, Packet pkt, PacketId k pkt, Eq k, Hashable k)
+  :: (MonadUnliftIO m, Transport tp, RecvPacket pkt, SendPacket pkt, PacketId k pkt, Eq k, Hashable k)
   => Maybe Int64 -> Maybe Int -> pkt -> NodeT u nid k pkt tp m (Maybe pkt)
 requestAndRetry sTout retryTout pkt = do
   alive <- nodeState

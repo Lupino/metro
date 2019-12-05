@@ -76,7 +76,7 @@ initConnEnv config = do
   transport <- liftIO $ newTransport config
   return ConnEnv{..}
 
-receive :: (MonadUnliftIO m, Transport tp, Packet pkt) => ConnT tp m pkt
+receive :: (MonadUnliftIO m, Transport tp, RecvPacket pkt) => ConnT tp m pkt
 receive = do
   connEnv@ConnEnv{..} <- ask
   L.with readLock $ lift $ recvPacket (recv' connEnv)
@@ -104,7 +104,7 @@ recv' ConnEnv{..} nbytes = do
                                   otherBuf <- readBuf (nb - B.length buf)
                                   return $! B.concat [ buf, otherBuf ]
 
-send :: (MonadUnliftIO m, Transport tp, Packet pkt) => pkt -> ConnT tp m ()
+send :: (MonadUnliftIO m, Transport tp, SendPacket pkt) => pkt -> ConnT tp m ()
 send pkt = do
   ConnEnv{..} <- ask
   L.with writeLock $ lift $ sendPacket pkt (liftIO . sendData transport)
