@@ -8,8 +8,7 @@ module Metro.Example.Types
   , Command (..)
   ) where
 
-import           Data.Binary          (Binary (..), decode, encode, getWord8,
-                                       putWord8)
+import           Data.Binary          (Binary (..), decode, getWord8, putWord8)
 import           Data.Binary.Get      (getByteString,
                                        getRemainingLazyByteString, getWord16be)
 import           Data.Binary.Put      (putByteString, putWord16be)
@@ -126,7 +125,7 @@ instance Class.RecvPacket Packet where
         return $ decode . fromStrict $ hbs <> bs
 
 instance Class.SendPacket Packet where
-  sendPacket pkt send = send . toStrict . encode $ preparePacket pkt
+  sendPacket = Class.sendBinary
 
 instance Class.PacketId Word16 Packet where
   getPacketId = packetId
