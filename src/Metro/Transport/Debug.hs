@@ -18,10 +18,10 @@ instance Transport tp => Transport (Debug tp) where
 
   recvData (Debug tp) nbytes = do
     bs <- recvData tp nbytes
-    print $ "recv " ++ show bs
+    putStrLn $ "recv " ++ show bs
     return bs
   sendData (Debug tp) bs = do
-    print $ "send " ++ show bs
+    putStrLn $ "send " ++ show bs
     sendData tp bs
   closeTransport (Debug tp) = closeTransport tp
 
