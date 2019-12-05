@@ -30,16 +30,15 @@ import           Control.Monad.Reader.Class (MonadReader, asks)
 import           Control.Monad.Trans.Class  (MonadTrans (..))
 import           Control.Monad.Trans.Reader (ReaderT (..), runReaderT)
 import           Data.Int                   (Int64)
-import           Metro.Class                (PacketId, RecvPacket, SendPacket,
-                                             setPacketId)
+import           Metro.Class                (PacketId, SendPacket, setPacketId)
 import           Metro.Conn                 (ConnT, FromConn (..), statusTVar)
 import qualified Metro.Conn                 as Conn (send)
 import           Metro.Transport            (Transport)
 import           Metro.Utils                (getEpochTime)
 import           UnliftIO
 
-data SessionEnv u nid k pkt = SessionEnv
-  { sessionData    :: TVar [Maybe pkt]
+data SessionEnv u nid k rpkt = SessionEnv
+  { sessionData    :: TVar [Maybe rpkt]
   , sessionNid     :: nid
   , sessionId      :: k
   , sessionUEnv    :: u
@@ -47,19 +46,19 @@ data SessionEnv u nid k pkt = SessionEnv
   , sessionTimeout :: Int64
   }
 
-newSessionEnv :: MonadIO m => u -> nid -> k -> Int64 -> [Maybe pkt] -> m (SessionEnv u nid k pkt)
-newSessionEnv sessionUEnv sessionNid sessionId sessionTimeout pkts = do
-  sessionData <- newTVarIO pkts
+newSessionEnv :: MonadIO m => u -> nid -> k -> Int64 -> [Maybe rpkt] -> m (SessionEnv u nid k rpkt)
+newSessionEnv sessionUEnv sessionNid sessionId sessionTimeout rpkts = do
+  sessionData <- newTVarIO rpkts
   sessionTimer <- newTVarIO =<< getEpochTime
   pure SessionEnv {..}
 
-newtype SessionT u nid k pkt tp m a = SessionT { unSessionT :: ReaderT (SessionEnv u nid k pkt) (ConnT tp m) a }
-  deriving (Functor, Applicative, Monad, MonadIO, MonadReader (SessionEnv u nid k pkt))
+newtype SessionT u nid k rpkt tp m a = SessionT { unSessionT :: ReaderT (SessionEnv u nid k rpkt) (ConnT tp m) a }
+  deriving (Functor, Applicative, Monad, MonadIO, MonadReader (SessionEnv u nid k rpkt))
 
-instance MonadTrans (SessionT u nid k pkt tp) where
+instance MonadTrans (SessionT u nid k rpkt tp) where
   lift = SessionT . lift . lift
 
-instance MonadUnliftIO m => MonadUnliftIO (SessionT u nid k pkt tp m) where
+instance MonadUnliftIO m => MonadUnliftIO (SessionT u nid k rpkt tp m) where
   askUnliftIO = SessionT $
     ReaderT $ \r ->
       withUnliftIO $ \u ->
@@ -69,29 +68,29 @@ instance MonadUnliftIO m => MonadUnliftIO (SessionT u nid k pkt tp m) where
       withRunInIO $ \run ->
         inner (run . runSessionT r)
 
-instance FromConn (SessionT u nid k pkt) where
+instance FromConn (SessionT u nid k rpkt) where
   fromConn = SessionT . lift
 
-runSessionT :: SessionEnv u nid k pkt -> SessionT u nid k pkt tp m a -> ConnT tp m a
+runSessionT :: SessionEnv u nid k rpkt -> SessionT u nid k rpkt tp m a -> ConnT tp m a
 runSessionT aEnv = flip runReaderT aEnv . unSessionT
 
-sessionState :: MonadIO m => SessionT u nid k pkt tp m Bool
+sessionState :: MonadIO m => SessionT u nid k rpkt tp m Bool
 sessionState = readTVarIO =<< fromConn statusTVar
 
 send
-  :: (MonadUnliftIO m, Transport tp, SendPacket pkt, PacketId k pkt)
-  => pkt -> SessionT u nid k pkt tp m ()
-send pkt = do
+  :: (MonadUnliftIO m, Transport tp, SendPacket spkt, PacketId k spkt)
+  => spkt -> SessionT u nid k rpkt tp m ()
+send rpkt = do
   mid <- getSessionId
-  fromConn $ Conn.send $ setPacketId mid pkt
+  fromConn $ Conn.send $ setPacketId mid rpkt
 
-feed :: (MonadIO m) => Maybe pkt -> SessionT u nid k pkt tp m ()
-feed pkt = do
+feed :: (MonadIO m) => Maybe rpkt -> SessionT u nid k rpkt tp m ()
+feed rpkt = do
   reader <- asks sessionData
   setTimer =<< getEpochTime
-  atomically . modifyTVar' reader $ \v -> v ++ [pkt]
+  atomically . modifyTVar' reader $ \v -> v ++ [rpkt]
 
-receive :: (MonadIO m, Transport tp) => SessionT u nid k pkt tp m (Maybe pkt)
+receive :: (MonadIO m, Transport tp) => SessionT u nid k rpkt tp m (Maybe rpkt)
 receive = do
   reader <- asks sessionData
   st <- fromConn statusTVar
@@ -105,40 +104,40 @@ receive = do
       writeTVar reader $! tail v
       pure $ head v
 
-readerSize :: MonadIO m => SessionT u nid k pkt tp m Int
+readerSize :: MonadIO m => SessionT u nid k rpkt tp m Int
 readerSize = fmap length $ readTVarIO =<< asks sessionData
 
-getSessionId :: Monad m => SessionT u nid k pkt tp m k
+getSessionId :: Monad m => SessionT u nid k rpkt tp m k
 getSessionId = asks sessionId
 
-getNodeId :: Monad m => SessionT u nid k pkt tp m nid
+getNodeId :: Monad m => SessionT u nid k rpkt tp m nid
 getNodeId = asks sessionNid
 
-env :: Monad m => SessionT u nid k pkt tp m u
+env :: Monad m => SessionT u nid k rpkt tp m u
 env = asks sessionUEnv
 
 -- makeResponse if Nothing ignore
 makeResponse
-  :: (MonadUnliftIO m, Transport tp, RecvPacket pkt, SendPacket pkt, PacketId k pkt)
-  => (pkt -> m (Maybe pkt)) -> SessionT u nid k pkt tp m ()
+  :: (MonadUnliftIO m, Transport tp, SendPacket spkt, PacketId k spkt)
+  => (rpkt -> m (Maybe spkt)) -> SessionT u nid k rpkt tp m ()
 makeResponse f = mapM_ doSend =<< receive
 
-  where doSend pkt = mapM_ send =<< (lift . f) pkt
+  where doSend spkt = mapM_ send =<< (lift . f) spkt
 
 makeResponse_
-  :: (MonadUnliftIO m, Transport tp, RecvPacket pkt, SendPacket pkt, PacketId k pkt)
-  => (pkt -> Maybe pkt) -> SessionT u nid k pkt tp m ()
+  :: (MonadUnliftIO m, Transport tp, SendPacket spkt, PacketId k spkt)
+  => (rpkt -> Maybe spkt) -> SessionT u nid k rpkt tp m ()
 makeResponse_ f = makeResponse (pure . f)
 
-getTimer :: MonadIO m => SessionT u nid k pkt tp m Int64
+getTimer :: MonadIO m => SessionT u nid k rpkt tp m Int64
 getTimer = readTVarIO =<< asks sessionTimer
 
-setTimer :: MonadIO m => Int64 -> SessionT u nid k pkt tp m ()
+setTimer :: MonadIO m => Int64 -> SessionT u nid k rpkt tp m ()
 setTimer t = do
   v <- asks sessionTimer
   atomically $ writeTVar v t
 
-isTimeout :: MonadIO m => SessionT u nid k pkt tp m Bool
+isTimeout :: MonadIO m => SessionT u nid k rpkt tp m Bool
 isTimeout = do
   t <- getTimer
   tout <- asks sessionTimeout
