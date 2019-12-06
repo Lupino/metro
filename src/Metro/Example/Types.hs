@@ -127,6 +127,8 @@ instance Class.RecvPacket Packet where
 instance Class.SendPacket Packet where
   sendPacket = Class.sendBinary
 
-instance Class.PacketId Word16 Packet where
+instance Class.GetPacketId Word16 Packet where
   getPacketId = packetId
+
+instance Class.SetPacketId Word16 Packet where
   setPacketId k pkt = pkt { packetId = k }

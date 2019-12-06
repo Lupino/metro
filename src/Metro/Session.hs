@@ -30,7 +30,8 @@ import           Control.Monad.Reader.Class (MonadReader, asks)
 import           Control.Monad.Trans.Class  (MonadTrans (..))
 import           Control.Monad.Trans.Reader (ReaderT (..), runReaderT)
 import           Data.Int                   (Int64)
-import           Metro.Class                (PacketId, SendPacket, setPacketId)
+import           Metro.Class                (SendPacket, SetPacketId,
+                                             setPacketId)
 import           Metro.Conn                 (ConnT, FromConn (..), statusTVar)
 import qualified Metro.Conn                 as Conn (send)
 import           Metro.Transport            (Transport)
@@ -78,7 +79,7 @@ sessionState :: MonadIO m => SessionT u nid k rpkt tp m Bool
 sessionState = readTVarIO =<< fromConn statusTVar
 
 send
-  :: (MonadUnliftIO m, Transport tp, SendPacket spkt, PacketId k spkt)
+  :: (MonadUnliftIO m, Transport tp, SendPacket spkt, SetPacketId k spkt)
   => spkt -> SessionT u nid k rpkt tp m ()
 send rpkt = do
   mid <- getSessionId
@@ -118,14 +119,14 @@ env = asks sessionUEnv
 
 -- makeResponse if Nothing ignore
 makeResponse
-  :: (MonadUnliftIO m, Transport tp, SendPacket spkt, PacketId k spkt)
+  :: (MonadUnliftIO m, Transport tp, SendPacket spkt, SetPacketId k spkt)
   => (rpkt -> m (Maybe spkt)) -> SessionT u nid k rpkt tp m ()
 makeResponse f = mapM_ doSend =<< receive
 
   where doSend spkt = mapM_ send =<< (lift . f) spkt
 
 makeResponse_
-  :: (MonadUnliftIO m, Transport tp, SendPacket spkt, PacketId k spkt)
+  :: (MonadUnliftIO m, Transport tp, SendPacket spkt, SetPacketId k spkt)
   => (rpkt -> Maybe spkt) -> SessionT u nid k rpkt tp m ()
 makeResponse_ f = makeResponse (pure . f)
 

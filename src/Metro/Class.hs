@@ -4,7 +4,8 @@ module Metro.Class
   ( RecvPacket (..)
   , SendPacket (..)
   , sendBinary
-  , PacketId (..)
+  , SetPacketId (..)
+  , GetPacketId (..)
   ) where
 
 import           Data.Binary          (Binary, encode)
@@ -21,6 +22,8 @@ class SendPacket spkt where
 sendBinary :: (MonadIO m, Binary spkt) => spkt -> (ByteString -> m ()) -> m ()
 sendBinary spkt send = send . toStrict $ encode spkt
 
-class PacketId k pkt where
-  getPacketId :: pkt -> k
+class SetPacketId k pkt where
   setPacketId :: k -> pkt -> pkt
+
+class GetPacketId k pkt where
+  getPacketId :: pkt -> k
