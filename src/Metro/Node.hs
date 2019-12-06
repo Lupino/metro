@@ -9,6 +9,7 @@
 
 module Metro.Node
   ( NodeEnv
+  , NodeMode (..)
   , NodeT
   , initEnv
   , runNodeT
@@ -53,10 +54,14 @@ import           Metro.Utils                (getEpochTime)
 import           UnliftIO
 import           UnliftIO.Concurrent        (threadDelay)
 
+data NodeMode = Single | Multi deriving (Show, Eq)
+
 
 data NodeEnv u nid k rpkt = NodeEnv
   { uEnv        :: u
   , nodeStatus  :: TVar Bool
+  , nodeMode    :: NodeMode
+  , nodeSession :: TVar (Maybe (SessionEnv u nid k rpkt))
   , sessionList :: IOHashMap k (SessionEnv u nid k rpkt)
   , sessionGen  :: IO k
   , nodeTimer   :: TVar Int64
@@ -100,16 +105,17 @@ runNodeT nEnv = flip runReaderT nEnv . unNodeT
 runNodeT1 :: NodeEnv1 u nid k rpkt tp -> NodeT u nid k rpkt tp m a -> m a
 runNodeT1 NodeEnv1 {..} = runConnT connEnv . runNodeT nodeEnv
 
-initEnv :: MonadIO m => u -> nid -> Int64 -> IO k -> m (NodeEnv u nid k rpkt)
-initEnv uEnv nodeId sessTimeout sessionGen = do
+initEnv :: MonadIO m => NodeMode -> u -> nid -> Int64 -> IO k -> m (NodeEnv u nid k rpkt)
+initEnv nodeMode uEnv nodeId sessTimeout sessionGen = do
   nodeStatus <- newTVarIO True
+  nodeSession <- newTVarIO Nothing
   sessionList <- newIOHashMap
   nodeTimer <- newTVarIO =<< getEpochTime
   pure NodeEnv{..}
 
-initEnv1 :: MonadIO m => ConnEnv tp -> u -> nid -> Int64 -> IO k -> m (NodeEnv1 u nid k rpkt tp)
-initEnv1 connEnv uEnv nid tout gen = do
-  nodeEnv <- initEnv uEnv nid tout gen
+initEnv1 :: MonadIO m => NodeMode -> ConnEnv tp -> u -> nid -> Int64 -> IO k -> m (NodeEnv1 u nid k rpkt tp)
+initEnv1 m connEnv uEnv nid tout gen = do
+  nodeEnv <- initEnv m uEnv nid tout gen
   return NodeEnv1 {..}
 
 runSessionT_ :: Monad m => SessionEnv u nid k rpkt -> SessionT u nid k rpkt tp m a -> NodeT u nid k rpkt tp m a
@@ -127,7 +133,13 @@ newSessionEnv :: (MonadIO m, Eq k, Hashable k) => Maybe Int64 -> k -> NodeT u ni
 newSessionEnv sTout sid = do
   NodeEnv{..} <- ask
   sEnv <- S.newSessionEnv uEnv nodeId sid (fromMaybe sessTimeout sTout) []
-  HM.insert sessionList sid sEnv
+  case nodeMode of
+    Single -> atomically $ do
+      sess <- readTVar nodeSession
+      case sess of
+        Nothing -> writeTVar nodeSession $ Just sEnv
+        Just _  -> retrySTM
+    Multi -> HM.insert sessionList sid sEnv
   return sEnv
 
 nextSessionId :: MonadIO m => NodeT u nid k rpkt tp m k
@@ -135,8 +147,10 @@ nextSessionId = liftIO =<< asks sessionGen
 
 removeSession :: (MonadIO m, Eq k, Hashable k) => k -> NodeT u nid k rpkt tp m ()
 removeSession mid = do
-  ref <- asks sessionList
-  HM.delete ref mid
+  NodeEnv{..} <- ask
+  case nodeMode of
+    Single -> atomically $ writeTVar nodeSession Nothing
+    Multi  -> HM.delete sessionList mid
 
 tryMainLoop
   :: (MonadUnliftIO m, Transport tp, RecvPacket rpkt, GetPacketId k rpkt, Eq k, Hashable k)
@@ -170,7 +184,12 @@ doFeed
   => rpkt -> SessionT u nid k rpkt tp m () -> NodeT u nid k rpkt tp m ()
 doFeed rpkt sessionHandler = do
   NodeEnv{..} <- ask
-  v <- HM.lookup sessionList $ getPacketId rpkt
+  v <- case nodeMode of
+         Single -> atomically $ do
+           sess <- readTVar nodeSession
+           writeTVar nodeSession Nothing
+           return sess
+         Multi -> HM.lookup sessionList $ getPacketId rpkt
   case v of
     Just aEnv ->
       runSessionT_ aEnv $ feed $ Just rpkt

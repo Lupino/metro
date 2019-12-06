@@ -27,9 +27,9 @@ import           Metro.Conn
 import           Metro.IOHashMap            (IOHashMap, newIOHashMap)
 import qualified Metro.IOHashMap            as HM (delete, elems, insertSTM,
                                                    lookupSTM)
-import           Metro.Node                 (NodeEnv1, getNodeId, getTimer,
-                                             initEnv1, runNodeT1, startNodeT,
-                                             stopNodeT)
+import           Metro.Node                 (NodeEnv1, NodeMode, getNodeId,
+                                             getTimer, initEnv1, runNodeT1,
+                                             startNodeT, stopNodeT)
 import           Metro.Session              (SessionT)
 import           Metro.Socket               (listen)
 import           Metro.Transport            (Transport, TransportConfig)
@@ -48,6 +48,7 @@ data ServerEnv u nid k rpkt tp = ServerEnv
   , gen         :: IO k
   , keepalive   :: Int64
   , defSessTout :: Int64
+  , nodeMode    :: NodeMode
   }
 
 
@@ -78,10 +79,11 @@ runServerT sEnv = flip runReaderT sEnv . unServerT
 
 initServerEnv
   :: MonadIO m
-  => String -> Int64 -> Int64 -> IO k
+  => NodeMode
+  -> String -> Int64 -> Int64 -> IO k
   -> (Socket -> ConnEnv tp -> IO (Maybe (nid, u)))
   -> m (ServerEnv u nid k rpkt tp)
-initServerEnv hostPort keepalive defSessTout gen prepare = do
+initServerEnv nodeMode hostPort keepalive defSessTout gen prepare = do
   serveSock <- liftIO $ listen hostPort
   serveState <- newTVarIO True
   nodeEnvList <- newIOHashMap
@@ -130,7 +132,7 @@ handleConn sock tpconfig sess = do
   mnid <- liftIO $ prepare sock connEnv
 
   forM_ mnid $ \(nid, uEnv) -> do
-    env0 <- initEnv1 connEnv uEnv nid defSessTout gen
+    env0 <- initEnv1 nodeMode connEnv uEnv nid defSessTout gen
 
     env1 <- atomically $ do
       v <- HM.lookupSTM nodeEnvList nid

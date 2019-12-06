@@ -12,8 +12,9 @@ module Metro.Example
 import           Control.Monad          (void)
 import           Data.Aeson             (FromJSON, parseJSON, withObject, (.:))
 import           Data.Default.Class     (def)
-import           Metro                  (ServerEnv (..), initConnEnv,
-                                         initServerEnv, runConnT, startServer)
+import           Metro                  (NodeMode (Multi), ServerEnv (..),
+                                         initConnEnv, initServerEnv, runConnT,
+                                         startServer)
 import           Metro.Conn             (close, receive, send)
 import           Metro.Example.Device   (initDeviceEnv, sessionGen,
                                          sessionHandler, startDeviceT)
@@ -42,7 +43,7 @@ instance FromJSON ServerConfig where
 startMetroServer :: ServerConfig -> IO ()
 startMetroServer ServerConfig {..} = do
   gen <- sessionGen
-  sEnv <- initServerEnv sockPort (fromIntegral keepalive) (fromIntegral sessTout) gen $ \_ connEnv -> do
+  sEnv <- initServerEnv Multi sockPort (fromIntegral keepalive) (fromIntegral sessTout) gen $ \_ connEnv -> do
     cmd <- packetCmd <$> runConnT connEnv receive
     case cmd of
       Data nid -> return $ Just (nid, ())
