@@ -8,22 +8,24 @@ module Metro.Transport.Debug
 
 import           Metro.Transport
 
-data Debug tp = Debug tp
+data Debug tp = Debug String tp
 
 instance Transport tp => Transport (Debug tp) where
-  data TransportConfig (Debug tp) = DebugConfig (TransportConfig tp)
-  newTransport (DebugConfig config) = do
+  data TransportConfig (Debug tp) = DebugConfig String (TransportConfig tp)
+  newTransport (DebugConfig h config) = do
     tp <- newTransport config
-    return $ Debug tp
+    return $ Debug h tp
 
-  recvData (Debug tp) nbytes = do
+  recvData (Debug h tp) nbytes = do
     bs <- recvData tp nbytes
-    putStrLn $ "recv " ++ show bs
+    putStrLn $ h ++ " recv " ++ show bs
     return bs
-  sendData (Debug tp) bs = do
-    putStrLn $ "send " ++ show bs
+  sendData (Debug h tp) bs = do
+    putStrLn $ h ++ " send " ++ show bs
     sendData tp bs
-  closeTransport (Debug tp) = closeTransport tp
+  closeTransport (Debug h tp) = do
+    putStrLn $ h ++ " transport close"
+    closeTransport tp
 
-debugConfig :: TransportConfig tp -> TransportConfig (Debug tp)
+debugConfig :: String -> TransportConfig tp -> TransportConfig (Debug tp)
 debugConfig = DebugConfig
