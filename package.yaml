@@ -42,6 +42,8 @@ library:
   - http-types
   - unix-time
 
+  - hslogger
+
 executables:
   metro-server:
     main:                metro-server.hs

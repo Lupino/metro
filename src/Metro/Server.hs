@@ -37,6 +37,7 @@ import           Metro.Utils                (getEpochTime)
 import           Network.Socket             (Socket, SocketOption (KeepAlive),
                                              accept, setSocketOption)
 import qualified Network.Socket             as Socket (close)
+import           System.Log.Logger          (infoM)
 import           UnliftIO
 import           UnliftIO.Concurrent        (threadDelay)
 
@@ -49,6 +50,7 @@ data ServerEnv u nid k rpkt tp = ServerEnv
   , keepalive   :: Int64
   , defSessTout :: Int64
   , nodeMode    :: NodeMode
+  , serveName   :: String
   }
 
 
@@ -79,11 +81,11 @@ runServerT sEnv = flip runReaderT sEnv . unServerT
 
 initServerEnv
   :: MonadIO m
-  => NodeMode
+  => NodeMode -> String
   -> String -> Int64 -> Int64 -> IO k
   -> (Socket -> ConnEnv tp -> IO (Maybe (nid, u)))
   -> m (ServerEnv u nid k rpkt tp)
-initServerEnv nodeMode hostPort keepalive defSessTout gen prepare = do
+initServerEnv nodeMode serveName hostPort keepalive defSessTout gen prepare = do
   serveSock <- liftIO $ listen hostPort
   serveState <- newTVarIO True
   nodeEnvList <- newIOHashMap
@@ -95,12 +97,15 @@ serveForever
   -> SessionT u nid k rpkt tp m ()
   -> ServerT u nid k rpkt tp m ()
 serveForever mk sess = do
+  name <- asks serveName
+  liftIO $ infoM "Metro.Server" $ name ++ "Server started"
   state <- asks serveState
   void . runMaybeT . forever $ do
     e <- lift $ tryServeOnce mk sess
     when (isLeft e) mzero
     alive <- readTVarIO state
     unless alive mzero
+  liftIO $ infoM "Metro.Server" $ name ++ "Server closed"
 
 tryServeOnce
   :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Hashable nid, Eq k, Hashable k, GetPacketId k rpkt, RecvPacket rpkt)
@@ -132,6 +137,7 @@ handleConn sock tpconfig sess = do
   mnid <- liftIO $ prepare sock connEnv
 
   forM_ mnid $ \(nid, uEnv) -> do
+    liftIO $ infoM "Metro.Server" (serveName ++ "Client: " ++ show nid ++ " connected")
     env0 <- initEnv1 nodeMode connEnv uEnv nid defSessTout gen
 
     env1 <- atomically $ do
@@ -142,6 +148,7 @@ handleConn sock tpconfig sess = do
     mapM_ (`runNodeT1` stopNodeT) env1
 
     lift . runNodeT1 env0 $ startNodeT sess
+    liftIO $ infoM "Metro.Server" (serveName ++ "Client: " ++ show nid ++ " disconnected")
 
 startServer
   :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Hashable nid, Eq k, Hashable k, GetPacketId k rpkt, RecvPacket rpkt)
