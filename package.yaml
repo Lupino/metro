@@ -43,6 +43,7 @@ library:
   - unix-time
 
   - hslogger
+  - hex
 
 executables:
   metro-server:
