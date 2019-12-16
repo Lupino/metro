@@ -13,14 +13,15 @@ import           Control.Monad             (void)
 import           Data.Aeson                (FromJSON, parseJSON, withObject,
                                             (.!=), (.:), (.:?))
 import           Data.Default.Class        (def)
-import           Metro                     (NodeMode (Multi), ServerEnv (..),
-                                            initConnEnv, initServerEnv,
-                                            runConnT, startServer)
+import           Metro                     (NodeMode (Multi), initConnEnv,
+                                            runConnT)
 import           Metro.Conn                (close, receive, send)
 import           Metro.Example.Device      (initDeviceEnv, sessionGen,
                                             sessionHandler, startDeviceT)
 import           Metro.Example.Types       (Command (..), Packet (..))
 import           Metro.Example.Web         (startWeb)
+import           Metro.Server              (ServerEnv (..), initServerEnv,
+                                            startServer)
 import           Metro.Transport.Socket    (rawSocket, socketUri)
 import           System.IO                 (stderr)
 import           System.Log                (Priority (..))

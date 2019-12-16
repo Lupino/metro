@@ -1,4 +1,4 @@
-name:                metro
+name:                metro-tcp
 version:             0.1.0.0
 github:              "Lupino/metro"
 license:             BSD3
@@ -25,14 +25,11 @@ dependencies:
 library:
   source-dirs: src
   dependencies:
-  - bytestring
-  - binary
   - unliftio
-  - transformers
-  - mtl
-  - hashable
-  - unordered-containers
-  - unix-time
-
+  - directory
+  - network
+  - metro
   - hslogger
-  - hex
+  - transformers
+  - hashable
+  - mtl
