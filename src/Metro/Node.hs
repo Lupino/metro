@@ -140,8 +140,7 @@ newSessionEnv sTout sid = do
         Nothing -> writeTVar nodeSession $ Just sEnv
         Just _  -> do
           state <- readTVar nodeStatus
-          if state then retrySTM
-                   else return () -- ignore waiting on node closed
+          when state retrySTM
     Multi -> HM.insert sessionList sid sEnv
   return sEnv
 

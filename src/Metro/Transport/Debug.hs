@@ -1,5 +1,4 @@
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE TypeFamilies    #-}
+{-# LANGUAGE TypeFamilies #-}
 
 module Metro.Transport.Debug
   ( Debug
