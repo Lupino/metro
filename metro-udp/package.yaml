@@ -1,4 +1,4 @@
-name:                metro-example
+name:                metro-udp
 version:             0.1.0.0
 github:              "Lupino/metro"
 license:             BSD3
@@ -25,38 +25,11 @@ dependencies:
 library:
   source-dirs: src
   dependencies:
-  - metro
-  - metro-tcp
-  - metro-udp
-  - data-default-class
-  - bytestring
-  - binary
   - unliftio
-  - http-types
-  - warp
-  - scotty
-  - streaming-commons
-  - aeson
+  - network
   - hslogger
-
-executables:
-  metro-server:
-    main:                metro-server.hs
-    source-dirs:         app
-    ghc-options:
-    - -threaded
-    - -rtsopts
-    - -with-rtsopts=-N
-    dependencies:
-    - metro-example
-    - yaml
-  metro-client:
-    main:                metro-client.hs
-    source-dirs:         app
-    ghc-options:
-    - -threaded
-    - -rtsopts
-    - -with-rtsopts=-N
-    dependencies:
-    - metro-example
-    - yaml
+  - metro
+  - hashable
+  - transformers
+  - mtl
+  - bytestring
