@@ -20,7 +20,7 @@ newtype BSHandle = BSHandle (TVar ByteString)
 newBSHandle :: MonadIO m => ByteString -> m BSHandle
 newBSHandle bs = BSHandle <$> newTVarIO bs
 
-feed :: BSHandle -> ByteString -> IO ()
+feed :: MonadIO m => BSHandle -> ByteString -> m ()
 feed (BSHandle h) bs = atomically $ do
   bs0 <- readTVar h
   writeTVar h $ bs0 <> bs
