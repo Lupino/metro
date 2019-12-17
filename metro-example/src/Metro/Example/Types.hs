@@ -125,7 +125,7 @@ instance Class.RecvPacket Packet where
         return $ decode . fromStrict $ hbs <> bs
 
 instance Class.SendPacket Packet where
-  sendPacket = Class.sendBinary
+  sendPacket = Class.sendBinary . preparePacket
 
 instance Class.GetPacketId Word16 Packet where
   getPacketId = packetId
