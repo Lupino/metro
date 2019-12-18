@@ -16,6 +16,7 @@ module Metro.Servable
   , serverEnv
   , initServerEnv
   , runServerT
+  , stopServerT
   , handleConn
   ) where
 
@@ -182,6 +183,12 @@ startServer sEnv mk sess = do
   when (keepalive sEnv > 0) $ runCheckNodeState (keepalive sEnv) (nodeEnvList sEnv)
   runServerT sEnv $ serveForever mk sess
   liftIO $ close $ serveServ sEnv
+
+stopServerT :: (MonadIO m, Servable serv) => ServerT serv u nid k rpkt tp m ()
+stopServerT = do
+  ServerEnv {..} <- ask
+  atomically $ writeTVar serveState False
+  liftIO $ close serveServ
 
 runCheckNodeState
   :: (MonadUnliftIO m, Eq nid, Hashable nid, Transport tp)
