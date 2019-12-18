@@ -22,7 +22,7 @@ import           Metro.Example.Types       (Command (..), Packet (..))
 import           Metro.Example.Web         (startWeb)
 import           Metro.Server              (ServerEnv (..), initServerEnv,
                                             startServer)
-import           Metro.Transport.Socket    (rawSocket, socketUri)
+import           Metro.Transport.Socket    (socketUri)
 import           System.IO                 (stderr)
 import           System.Log                (Priority (..))
 import           System.Log.Formatter      (simpleLogFormatter)
@@ -65,7 +65,7 @@ startMetroServer ServerConfig {..} = do
       _        -> do
         runConnT connEnv close
         return Nothing
-  void $ forkIO $ startServer sEnv rawSocket sessionHandler
+  void $ forkIO $ startServer sEnv id sessionHandler
   startWeb (nodeEnvList sEnv) webHost webPort
 
 newtype ClientConfig = ClientConfig

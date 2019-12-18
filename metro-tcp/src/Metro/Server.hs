@@ -33,6 +33,7 @@ import           Metro.Node                 (NodeEnv1, NodeMode, getNodeId,
 import           Metro.Session              (SessionT)
 import           Metro.Socket               (listen)
 import           Metro.Transport            (Transport, TransportConfig)
+import qualified Metro.Transport.Socket     as T (Socket, rawSocket)
 import           Metro.Utils                (getEpochTime)
 import           Network.Socket             (Socket, SocketOption (KeepAlive),
                                              accept, setSocketOption)
@@ -93,7 +94,7 @@ initServerEnv nodeMode serveName hostPort keepalive defSessTout gen prepare = do
 
 serveForever
   :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Hashable nid, Eq k, Hashable k, GetPacketId k rpkt, RecvPacket rpkt)
-  => (Socket -> TransportConfig tp)
+  => (TransportConfig T.Socket -> TransportConfig tp)
   -> SessionT u nid k rpkt tp m ()
   -> ServerT u nid k rpkt tp m ()
 serveForever mk sess = do
@@ -109,20 +110,20 @@ serveForever mk sess = do
 
 tryServeOnce
   :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Hashable nid, Eq k, Hashable k, GetPacketId k rpkt, RecvPacket rpkt)
-  => (Socket -> TransportConfig tp)
+  => (TransportConfig T.Socket -> TransportConfig tp)
   -> SessionT u nid k rpkt tp m ()
   -> ServerT u nid k rpkt tp m (Either SomeException ())
 tryServeOnce mk sess = tryAny (serveOnce mk sess)
 
 serveOnce
   :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Hashable nid, Eq k, Hashable k, GetPacketId k rpkt, RecvPacket rpkt)
-  => (Socket -> TransportConfig tp)
+  => (TransportConfig T.Socket -> TransportConfig tp)
   -> SessionT u nid k rpkt tp m ()
   -> ServerT u nid k rpkt tp m ()
 serveOnce mk sess = do
   (sock, _) <- liftIO . accept =<< asks serveSock
   liftIO $ setSocketOption sock KeepAlive 1
-  void $ async $ handleConn sock (mk sock) sess
+  void $ async $ handleConn sock (mk $ T.rawSocket sock) sess
 
 handleConn
   :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Hashable nid, Eq k, Hashable k, GetPacketId k rpkt, RecvPacket rpkt)
@@ -153,7 +154,7 @@ handleConn sock tpconfig sess = do
 startServer
   :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Hashable nid, Eq k, Hashable k, GetPacketId k rpkt, RecvPacket rpkt)
   => ServerEnv u nid k rpkt tp
-  -> (Socket -> TransportConfig tp)
+  -> (TransportConfig T.Socket -> TransportConfig tp)
   -> SessionT u nid k rpkt tp m ()
   -> m ()
 startServer sEnv mk sess = do
