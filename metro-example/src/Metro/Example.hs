@@ -20,8 +20,9 @@ import           Metro.Example.Device      (initDeviceEnv, sessionGen,
                                             sessionHandler, startDeviceT)
 import           Metro.Example.Types       (Command (..), Packet (..))
 import           Metro.Example.Web         (startWeb)
-import           Metro.Server              (ServerEnv (..), initServerEnv,
+import           Metro.Servable            (getNodeEnvList, initServerEnv,
                                             startServer)
+import           Metro.Server              (tcpConfig)
 import           Metro.Transport.Socket    (socketUri)
 import           System.IO                 (stderr)
 import           System.Log                (Priority (..))
@@ -58,7 +59,7 @@ startMetroServer ServerConfig {..} = do
   updateGlobalLogger rootLoggerName (addHandler handle . setLevel logLevel)
 
   gen <- sessionGen
-  sEnv <- initServerEnv Multi "Example" sockPort (fromIntegral keepalive) (fromIntegral sessTout) gen $ \_ connEnv -> do
+  sEnv <- initServerEnv Multi "Example" (tcpConfig sockPort) (fromIntegral keepalive) (fromIntegral sessTout) gen $ \_ connEnv -> do
     cmd <- packetCmd <$> runConnT connEnv receive
     case cmd of
       Data nid -> return $ Just (nid, ())
@@ -66,7 +67,7 @@ startMetroServer ServerConfig {..} = do
         runConnT connEnv close
         return Nothing
   void $ forkIO $ startServer sEnv id sessionHandler
-  startWeb (nodeEnvList sEnv) webHost webPort
+  startWeb (getNodeEnvList sEnv) webHost webPort
 
 newtype ClientConfig = ClientConfig
   { cSockPort :: String

@@ -7,103 +7,65 @@
 {-# LANGUAGE UndecidableInstances       #-}
 
 module Metro.UDP
-  ( startServer
-  , ServerEnv
-  , nodeEnvList
-  , initServerEnv
-  , runServerT
+  ( UDPServer
+  , udpConfig
   , newClient
   ) where
 
-import           Control.Monad              (forM_, forever, mzero, unless,
-                                             void, when)
-import           Control.Monad.Reader.Class (MonadReader (ask), asks)
-import           Control.Monad.Trans.Class  (MonadTrans, lift)
-import           Control.Monad.Trans.Maybe  (runMaybeT)
-import           Control.Monad.Trans.Reader (ReaderT (..), runReaderT)
-import           Data.ByteString            (ByteString, empty)
-import           Data.Either                (isLeft)
+import           Data.ByteString           (ByteString, empty)
 import           Data.Hashable
-import           Data.Int                   (Int64)
-import           Data.Maybe                 (listToMaybe)
-import           Metro.Class                (GetPacketId, RecvPacket)
+import           Data.Maybe                (listToMaybe)
+import           Metro.Class               (GetPacketId, RecvPacket)
 import           Metro.Conn
-import           Metro.IOHashMap            (IOHashMap, newIOHashMap)
-import qualified Metro.IOHashMap            as HM (delete, elems, insert,
-                                                   insertSTM, lookup, lookupSTM)
-import           Metro.Node                 (NodeEnv1, NodeMode, getNodeId,
-                                             getTimer, initEnv1, runNodeT1,
-                                             startNodeT, stopNodeT)
-import           Metro.Session              (SessionT)
-import           Metro.Transport            (Transport, TransportConfig)
-import           Metro.Transport.BS         (BSHandle, BSTransport,
-                                             bsTransportConfig, feed,
-                                             newBSHandle)
-import           Metro.Utils                (getEpochTime)
-import           Network.Socket             (AddrInfo (..), AddrInfoFlag (..),
-                                             SockAddr, Socket,
-                                             SocketOption (ReuseAddr),
-                                             SocketType (..), addrAddress,
-                                             addrFlags, addrSocketType, bind,
-                                             defaultHints, getAddrInfo,
-                                             setSocketOption, socket)
-import qualified Network.Socket             as Socket (close)
-import           Network.Socket.ByteString  (recvFrom, sendAllTo)
-import           System.Log.Logger          (errorM, infoM)
+import           Metro.IOHashMap           (IOHashMap, newIOHashMap)
+import qualified Metro.IOHashMap           as HM (delete, insert, lookup)
+import           Metro.Node                (NodeEnv1)
+import           Metro.Session             (SessionT)
+import           Metro.Transport           (Transport, TransportConfig)
+import           Metro.Transport.BS        (BSHandle, BSTransport,
+                                            bsTransportConfig, feed,
+                                            newBSHandle)
+import           Network.Socket            (AddrInfo (..), AddrInfoFlag (..),
+                                            SockAddr, Socket,
+                                            SocketOption (ReuseAddr),
+                                            SocketType (..), addrAddress,
+                                            addrFlags, addrSocketType, bind,
+                                            defaultHints, getAddrInfo,
+                                            setSocketOption, socket)
+import qualified Network.Socket            as Socket (close)
+import           Network.Socket.ByteString (recvFrom, sendAllTo)
+import           System.Log.Logger         (errorM)
 import           UnliftIO
-import           UnliftIO.Concurrent        (threadDelay)
 
-data ServerEnv u nid k rpkt tp = ServerEnv
-  { serveSock    :: Socket
-  , serveState   :: TVar Bool
-  , nodeEnvList  :: IOHashMap nid (NodeEnv1 u nid k rpkt tp)
-  , bsHandleList :: IOHashMap String BSHandle
-  , prepare      :: SockAddr -> ConnEnv tp -> IO (Maybe (nid, u))
-  , gen          :: IO k
-  , keepalive    :: Int64
-  , defSessTout  :: Int64
-  , nodeMode     :: NodeMode
-  , serveName    :: String
-  }
+import           Metro.Servable            (Servable (..), ServerT, getServ,
+                                            handleConn, serverEnv)
 
+data UDPServer = UDPServer Socket (IOHashMap String BSHandle)
 
-newtype ServerT u nid k rpkt tp m a = ServerT {unServerT :: ReaderT (ServerEnv u nid k rpkt tp) m a}
-  deriving
-    ( Functor
-    , Applicative
-    , Monad
-    , MonadIO
-    , MonadReader (ServerEnv u nid k rpkt tp)
-    )
+instance Servable UDPServer where
+  data ServConfig UDPServer = UDPConfig String
+  type ServID UDPServer = SockAddr
+  type STP UDPServer = BSTransport
+  newServ (UDPConfig hostPort) = do
+    sock <- liftIO $ bindTo hostPort
+    handleList <- newIOHashMap
+    return $ UDPServer sock handleList
+  servOnce us@(UDPServer serv handleList) = do
+    (bs, addr) <- liftIO $ recvFrom serv 1024
 
-instance MonadTrans (ServerT u nid k rpkt tp) where
-  lift = ServerT . lift
+    bsHandle <- HM.lookup handleList $ show addr
+    case bsHandle of
+      Just h  -> feed h bs >> return Nothing
+      Nothing -> do
+        config <- newTransportConfig us addr bs
+        return $ Just (addr, config)
 
-instance MonadUnliftIO m => MonadUnliftIO (ServerT u nid k rpkt tp m) where
-  askUnliftIO = ServerT $
-    ReaderT $ \r ->
-      withUnliftIO $ \u ->
-        return (UnliftIO (unliftIO u . runServerT r))
-  withRunInIO inner = ServerT $
-    ReaderT $ \r ->
-      withRunInIO $ \run ->
-        inner (run . runServerT r)
+  onConnEnter _ _ = return ()
+  onConnLeave (UDPServer _ handleList) addr = HM.delete handleList (show addr)
+  close (UDPServer serv _) = liftIO $ Socket.close serv
 
-runServerT :: ServerEnv u nid k rpkt tp -> ServerT u nid k rpkt tp m a -> m a
-runServerT sEnv = flip runReaderT sEnv . unServerT
-
-initServerEnv
-  :: MonadIO m
-  => NodeMode -> String
-  -> String -> Int64 -> Int64 -> IO k
-  -> (SockAddr -> ConnEnv tp -> IO (Maybe (nid, u)))
-  -> m (ServerEnv u nid k rpkt tp)
-initServerEnv nodeMode serveName hostPort keepalive defSessTout gen prepare = do
-  serveSock <- liftIO $ bindTo hostPort
-  serveState <- newTVarIO True
-  nodeEnvList <- newIOHashMap
-  bsHandleList <- newIOHashMap
-  pure ServerEnv{..}
+udpConfig :: String -> ServConfig UDPServer
+udpConfig = UDPConfig
 
 -- Returns the first action from a list which does not throw an exception.
 -- If all the actions throw exceptions (and the list of actions is not empty),
@@ -153,59 +115,16 @@ bindTo hostPort = do
           return sock
         )
 
-serveForever
-  :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Hashable nid, Eq k, Hashable k, GetPacketId k rpkt, RecvPacket rpkt)
-  => (TransportConfig BSTransport -> TransportConfig tp)
-  -> SessionT u nid k rpkt tp m ()
-  -> ServerT u nid k rpkt tp m ()
-serveForever mk sess = do
-  name <- asks serveName
-  liftIO $ infoM "Metro.UDP" $ name ++ "Server started"
-  state <- asks serveState
-  void . runMaybeT . forever $ do
-    e <- lift $ tryServeOnce mk sess
-    when (isLeft e) mzero
-    alive <- readTVarIO state
-    unless alive mzero
-  liftIO $ infoM "Metro.UDP" $ name ++ "Server closed"
-
-tryServeOnce
-  :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Hashable nid, Eq k, Hashable k, GetPacketId k rpkt, RecvPacket rpkt)
-  => (TransportConfig BSTransport -> TransportConfig tp)
-  -> SessionT u nid k rpkt tp m ()
-  -> ServerT u nid k rpkt tp m (Either SomeException ())
-tryServeOnce mk sess = tryAny (serveOnce mk sess)
-
-serveOnce
-  :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Hashable nid, Eq k, Hashable k, GetPacketId k rpkt, RecvPacket rpkt)
-  => (TransportConfig BSTransport -> TransportConfig tp)
-  -> SessionT u nid k rpkt tp m ()
-  -> ServerT u nid k rpkt tp m ()
-serveOnce mk sess = do
-  ServerEnv {..} <- ask
-  (bs, addr) <- liftIO $ recvFrom serveSock 1024
-
-  bsHandle <- HM.lookup bsHandleList $ show addr
-  case bsHandle of
-    Just h  -> feed h bs
-    Nothing -> void $ async $ do
-      connEnv <- newConnEnv mk addr bs
-      mnid <- liftIO $ prepare addr connEnv
-      forM_ mnid $ \(nid, uEnv) ->
-        void $ handleConn "Client" addr connEnv nid uEnv sess
-
-newConnEnv
-  :: (MonadIO m, Transport tp)
-  => (TransportConfig BSTransport -> TransportConfig tp)
+newTransportConfig
+  :: (MonadIO m)
+  => UDPServer
   -> SockAddr
   -> ByteString
-  -> ServerT u nid k rpkt tp m (ConnEnv tp)
-newConnEnv mk addr bs = do
-  ServerEnv {..} <- ask
+  -> m (TransportConfig BSTransport)
+newTransportConfig (UDPServer sock handleList) addr bs = do
   h <- newBSHandle bs
-  HM.insert bsHandleList (show addr) h
-  initConnEnv (mk (bsTransportConfig h (flip (sendAllTo serveSock) addr)))
-
+  HM.insert handleList (show addr) h
+  return $ bsTransportConfig h $ flip (sendAllTo sock) addr
 
 newClient
   :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Hashable nid, Eq k, Hashable k, GetPacketId k rpkt, RecvPacket rpkt)
@@ -214,7 +133,7 @@ newClient
   -> nid
   -> u
   -> SessionT u nid k rpkt tp m ()
-  -> ServerT u nid k rpkt tp m (Maybe (NodeEnv1 u nid k rpkt tp))
+  -> ServerT UDPServer u nid k rpkt tp m (Maybe (NodeEnv1 u nid k rpkt tp))
 newClient mk hostPort nid uEnv sess = do
   addr <- liftIO $ getDatagramAddr hostPort
   case addr of
@@ -222,67 +141,10 @@ newClient mk hostPort nid uEnv sess = do
       liftIO $ errorM "Metro.UDP" $ "Connect UDP Server " ++ hostPort ++ " failed"
       return Nothing
     Just addr0 -> do
-      connEnv <- newConnEnv mk (addrAddress addr0) empty
+      us <- getServ <$> serverEnv
+      config <- mk <$> newTransportConfig us (addrAddress addr0) empty
+      connEnv <- initConnEnv config
       Just <$> handleConn "Server" (addrAddress addr0) connEnv nid uEnv sess
-
-handleConn
-  :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Hashable nid, Eq k, Hashable k, GetPacketId k rpkt, RecvPacket rpkt)
-  => String
-  -> SockAddr
-  -> ConnEnv tp
-  -> nid
-  -> u
-  -> SessionT u nid k rpkt tp m ()
-  -> ServerT u nid k rpkt tp m (NodeEnv1 u nid k rpkt tp)
-handleConn n addr connEnv nid uEnv sess = do
-    ServerEnv {..} <- ask
-
-    liftIO $ infoM "Metro.UDP" (serveName ++ n ++ ": " ++ show nid ++ " connected")
-    env0 <- initEnv1 nodeMode connEnv uEnv nid defSessTout gen
-
-    env1 <- atomically $ do
-      v <- HM.lookupSTM nodeEnvList nid
-      HM.insertSTM nodeEnvList nid env0
-      pure v
-
-    mapM_ (`runNodeT1` stopNodeT) env1
-
-    void $ async $ do
-      lift . runNodeT1 env0 $ startNodeT sess
-      HM.delete bsHandleList (show addr)
-      liftIO $ infoM "Metro.UDP" (serveName ++ n ++ ": " ++ show nid ++ " disconnected")
-
-    return env0
-
-startServer
-  :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Hashable nid, Eq k, Hashable k, GetPacketId k rpkt, RecvPacket rpkt)
-  => ServerEnv u nid k rpkt tp
-  -> (TransportConfig BSTransport -> TransportConfig tp)
-  -> SessionT u nid k rpkt tp m ()
-  -> m ()
-startServer sEnv mk sess = do
-  when (keepalive sEnv > 0) $ runCheckNodeState (keepalive sEnv) (nodeEnvList sEnv)
-  runServerT sEnv $ serveForever mk sess
-  liftIO $ Socket.close $ serveSock sEnv
-
-runCheckNodeState
-  :: (MonadUnliftIO m, Eq nid, Hashable nid, Transport tp)
-  => Int64 -> IOHashMap nid (NodeEnv1 u nid k rpkt tp) -> m ()
-runCheckNodeState alive envList = void . async . forever $ do
-  threadDelay $ fromIntegral alive * 1000 * 1000
-  mapM_ (checkAlive envList) =<< HM.elems envList
-
-  where checkAlive
-          :: (MonadUnliftIO m, Eq nid, Hashable nid, Transport tp)
-          => IOHashMap nid (NodeEnv1 u nid k rpkt tp)
-          -> NodeEnv1 u nid k rpkt tp -> m ()
-        checkAlive ref env1 = runNodeT1 env1 $ do
-              expiredAt <- (alive +) <$> getTimer
-              now <- getEpochTime
-              when (now > expiredAt) $ do
-                nid <- getNodeId
-                stopNodeT
-                HM.delete ref nid
 
 dropS :: String -> String
 dropS = drop 3 . dropWhile (/= ':')

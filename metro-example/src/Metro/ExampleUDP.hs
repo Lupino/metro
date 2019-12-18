@@ -22,10 +22,12 @@ import           Metro                     (NodeMode (Multi), request,
 import           Metro.Example.Device      (sessionGen, sessionHandler)
 import           Metro.Example.Types       (Command (..), Packet (..))
 import           Metro.Example.Web         (startWeb)
+import           Metro.Servable            (ServerEnv (..), getNodeEnvList,
+                                            initServerEnv, runServerT,
+                                            startServer)
 import           Metro.Transport.BS        (BSTransport)
 import           Metro.Transport.Debug     (Debug, DebugMode (..), debugConfig)
-import           Metro.UDP                 (ServerEnv (..), initServerEnv,
-                                            newClient, runServerT, startServer)
+import           Metro.UDP                 (UDPServer, newClient, udpConfig)
 import           System.IO                 (stderr)
 import           System.Log                (Priority (..))
 import           System.Log.Formatter      (simpleLogFormatter)
@@ -56,7 +58,7 @@ instance FromJSON ServerConfig where
     logLevel  <- read <$> o .:? "log_level" .!= "ERROR"
     return ServerConfig{..}
 
-type ExampleEnv = ServerEnv () ByteString Word16 Packet (Debug BSTransport)
+type ExampleEnv = ServerEnv UDPServer () ByteString Word16 Packet (Debug BSTransport)
 
 newMetroServer :: ServerConfig -> IO ExampleEnv
 newMetroServer ServerConfig {..} = do
@@ -66,7 +68,7 @@ newMetroServer ServerConfig {..} = do
   updateGlobalLogger rootLoggerName (addHandler handle . setLevel logLevel)
 
   gen <- sessionGen
-  sEnv <- initServerEnv Multi "Example" sockPort (fromIntegral keepalive) (fromIntegral sessTout) gen $ \addr _ -> do
+  sEnv <- initServerEnv Multi "Example" (udpConfig sockPort) (fromIntegral keepalive) (fromIntegral sessTout) gen $ \addr _ -> do
     print addr
     return $ Just (fromString $ show addr, ())
   void $ forkIO $ startServer sEnv (debugConfig "Example" Raw) sessionHandler
@@ -75,7 +77,7 @@ newMetroServer ServerConfig {..} = do
 startMetroServer :: ServerConfig -> IO ()
 startMetroServer sc = do
   sEnv <- newMetroServer sc
-  startWeb (nodeEnvList sEnv) (webHost sc) (webPort sc)
+  startWeb (getNodeEnvList sEnv) (webHost sc) (webPort sc)
 
 startMetroClient :: ServerConfig -> IO ()
 startMetroClient sc = do
