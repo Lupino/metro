@@ -1,4 +1,4 @@
-name:                metro-tcp
+name:                metro-socket
 version:             0.1.0.0
 github:              "Lupino/metro"
 license:             BSD3
@@ -33,3 +33,5 @@ library:
   - transformers
   - hashable
   - mtl
+
+  - bytestring

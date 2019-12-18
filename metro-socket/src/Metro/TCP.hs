@@ -4,7 +4,7 @@
 {-# LANGUAGE TypeFamilies          #-}
 {-# LANGUAGE UndecidableInstances  #-}
 
-module Metro.Server
+module Metro.TCP
   ( TCPServer
   , tcpConfig
   ) where

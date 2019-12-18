@@ -26,8 +26,7 @@ library:
   source-dirs: src
   dependencies:
   - metro
-  - metro-tcp
-  - metro-udp
+  - metro-socket
   - data-default-class
   - bytestring
   - binary

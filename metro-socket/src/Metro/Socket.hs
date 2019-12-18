@@ -5,13 +5,17 @@ module Metro.Socket
   , connect
   , getHost
   , getService
+  -- udp
+  , bindTo
+  , getDatagramAddr
   ) where
 
 import           Control.Exception (bracketOnError, throwIO)
 import           Control.Monad     (when)
 import           Data.List         (isPrefixOf)
-import           Network.Socket    hiding (connect, listen)
-import qualified Network.Socket    as S (connect, listen)
+import           Data.Maybe        (listToMaybe)
+import           Network.Socket    hiding (bind, connect, listen)
+import qualified Network.Socket    as S (bind, connect, listen)
 import           System.Directory  (doesFileExist, removeFile)
 import           System.Exit       (exitFailure)
 import           UnliftIO          (tryIO)
@@ -37,11 +41,11 @@ firstSuccessful = go Nothing
   go (Just e) [] = throwIO e
 
 
-connectTo :: Maybe HostName -> ServiceName -> IO Socket
+connectTo :: Maybe HostName -> Maybe ServiceName -> IO Socket
 connectTo host serv = do
     let hints = defaultHints { addrFlags = [AI_ADDRCONFIG]
                              , addrSocketType = Stream }
-    addrs <- getAddrInfo (Just hints) host (Just serv)
+    addrs <- getAddrInfo (Just hints) host serv
     firstSuccessful $ map tryToConnect addrs
   where
   tryToConnect addr =
@@ -70,12 +74,12 @@ listenOnFile path =
     close
     (\sock -> do
         setSocketOption sock ReuseAddr 1
-        bind sock (SockAddrUnix path)
+        S.bind sock (SockAddrUnix path)
         S.listen sock maxListenQueue
         return sock
     )
 
-listenOn :: Maybe HostName -> ServiceName -> IO Socket
+listenOn :: Maybe HostName -> Maybe ServiceName -> IO Socket
 listenOn host serv = do
   -- We should probably specify addrFamily = AF_INET6 and the filter
   -- code below should be removed. AI_ADDRCONFIG is probably not
@@ -83,7 +87,7 @@ listenOn host serv = do
   let hints = defaultHints { addrFlags = [AI_ADDRCONFIG, AI_PASSIVE]
                            , addrSocketType = Stream
                            }
-  addrs <- getAddrInfo (Just hints) host (Just serv)
+  addrs <- getAddrInfo (Just hints) host serv
   -- Choose an IPv6 socket if exists.  This ensures the socket can
   -- handle both IPv4 and IPv6 if v6only is false.
   let addrs' = filter (\x -> addrFamily x == AF_INET6) addrs
@@ -94,7 +98,7 @@ listenOn host serv = do
       (\sock -> do
           setSocketOption sock ReuseAddr 1
           setSocketOption sock NoDelay   1
-          bind sock (addrAddress addr)
+          S.bind sock (addrAddress addr)
           S.listen sock maxListenQueue
           return sock
       )
@@ -119,6 +123,35 @@ connect :: String -> IO Socket
 connect h | "tcp" `isPrefixOf` h = connectTo (getHost h) (getService h)
           | otherwise            = connectToFile (dropS h)
 
+getDatagramAddrList :: String -> IO [AddrInfo]
+getDatagramAddrList hostPort = getAddrInfo (Just hints) host port
+  where hints = defaultHints
+          { addrFlags = [AI_PASSIVE]
+          , addrSocketType = Datagram
+          }
+
+        host = getHost hostPort
+        port = getService hostPort
+
+getDatagramAddr :: String -> IO (Maybe AddrInfo)
+getDatagramAddr hostPort = listToMaybe <$> getDatagramAddrList hostPort
+
+bindTo :: String -> IO Socket
+bindTo hostPort = do
+  addrs <- getDatagramAddrList hostPort
+  firstSuccessful $ map tryToConnect addrs
+  where
+  tryToConnect addr =
+    bracketOnError
+        (socket (addrFamily addr) (addrSocketType addr) (addrProtocol addr))
+        close  -- only done if there's an error
+        (\sock -> do
+          setSocketOption sock ReuseAddr 1
+          S.bind sock $ addrAddress addr
+          return sock
+        )
+
+
 dropS :: String -> String
 dropS = drop 3 . dropWhile (/= ':')
 
@@ -129,5 +162,5 @@ toMaybe xs = Just xs
 getHost :: String -> Maybe String
 getHost = toMaybe . takeWhile (/=':') . dropS
 
-getService :: String -> String
-getService = drop 1 . dropWhile (/=':') . dropS
+getService :: String -> Maybe String
+getService = toMaybe . drop 1 . dropWhile (/=':') . dropS

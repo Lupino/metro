@@ -22,7 +22,7 @@ import           Metro.Example.Types       (Command (..), Packet (..))
 import           Metro.Example.Web         (startWeb)
 import           Metro.Servable            (getNodeEnvList, initServerEnv,
                                             startServer)
-import           Metro.Server              (tcpConfig)
+import           Metro.TCP                 (tcpConfig)
 import           Metro.Transport.Socket    (socketUri)
 import           System.IO                 (stderr)
 import           System.Log                (Priority (..))
