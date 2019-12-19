@@ -78,7 +78,7 @@ startMetroServer :: ServerConfig -> IO ()
 startMetroServer ServerConfig {..} = do
   setupLog logLevel
   if "udp" `isPrefixOf` sockPort then do
-    sEnv <- newMetroServer (debugConfig "Example" Raw) Multi (udpConfig sockPort) keepalive sessTout
+    sEnv <- newMetroServer (debugConfig "Example" Raw) Multi (udpConfig sockPort) 0 sessTout
     startWeb (getNodeEnvList sEnv) webHost webPort
   else do
     sEnv <- newMetroServer (debugConfig "Example" Raw) Multi (tcpConfig sockPort) keepalive sessTout
@@ -88,7 +88,7 @@ startMetroClient :: ServerConfig -> IO ()
 startMetroClient ServerConfig {..} = do
   setupLog logLevel
   if "udp" `isPrefixOf` sockPort then do
-    sEnv <- newMetroServer (debugConfig "ExampleClient" Raw) Multi (udpConfig "udp://:0") keepalive sessTout
+    sEnv <- newMetroServer (debugConfig "ExampleClient" Raw) Multi (udpConfig "udp://0.0.0.0:0") 0 sessTout
     env0 <- runServerT sEnv $ newClient (debugConfig "ExampleClient" Raw) sockPort "client" () sessionHandler
     case env0 of
       Nothing   -> do
