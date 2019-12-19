@@ -22,7 +22,7 @@ instance Transport tp => Transport (Debug tp) where
     return $ Debug h f tp
     where f = case mode of
                 Raw -> show
-                Hex -> hex . show
+                Hex -> show . hex
 
   recvData (Debug h f tp) nbytes = do
     bs <- recvData tp nbytes
