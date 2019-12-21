@@ -1,23 +1,27 @@
 # metro
 
-a simple tcp socket server framework
+a simple tcp and udp socket server framework
 
 ## Quick start with example
 
 ```haskell
 import Metro.Class
 import Metro.Node
+import Metro.TCP
+import Metro.Servable
 import Metro.Session (SessionT, makeResponse_)
 
 data CustomPacket = CustomPacket { ... }
 type CustomPacketId = ...
 
-instance Packet CustomPacket where
+instance RecvPacket CustomPacket where
   recvPacket recv = ...
+instance SendPacket CustomPacket where
   sendPacket pkt send = ...
 
-instance PacketId CustomPacketId PacketId
+instance GetPacketId CustomPacketId where
   getPacketId = ...
+instance SetPacketId CustomPacketId where
   setPacketId k pkt = ...
 
 type NodeId = ...
@@ -38,9 +42,8 @@ keepalive = 300
 bind_port = "tcp://:8080"
 
 startExampleServer = do
-  sock <- listen bind_port
-  sEnv <- initServerEnv sock (fromIntegral keepalive) sessionGen prepare
-  void $ forkIO $ startServer sEnv rawSocket sessionHandler
+  sEnv <- initServerEnv Multi "Example" (tcpConfig "tcp://:8080") keepalive sessionTimeout sessionGen rawSocket prepare
+  void $ forkIO $ startServer sEnv sessionHandler
 ```
 
-more see [src/Metro/Example.hs](src/Metro/Example.hs)
+more see [metro-example/src/Metro/Example.hs](src/Metro/Example.hs)
