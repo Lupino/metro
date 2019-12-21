@@ -64,14 +64,14 @@ newMetroServer
   -> NodeMode -> ServConfig serv -> Int -> Int -> IO (ExampleEnv serv tp)
 newMetroServer mk mode config keepalive sessTout = do
   gen <- sessionGen
-  sEnv <- initServerEnv mode "Example" config (fromIntegral keepalive) (fromIntegral sessTout) gen $ \_ connEnv -> do
+  sEnv <- initServerEnv mode "Example" config (fromIntegral keepalive) (fromIntegral sessTout) gen mk $ \_ connEnv -> do
     cmd <- packetCmd <$> runConnT connEnv receive
     case cmd of
       Data nid -> return $ Just (nid, ())
       _        -> do
         runConnT connEnv close
         return Nothing
-  void $ forkIO $ startServer sEnv mk sessionHandler
+  void $ forkIO $ startServer sEnv sessionHandler
   return sEnv
 
 startMetroServer :: ServerConfig -> IO ()

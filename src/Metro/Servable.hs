@@ -55,15 +55,16 @@ class Servable serv where
   close       :: MonadIO m => serv -> m ()
 
 data ServerEnv serv u nid k rpkt tp = ServerEnv
-  { serveServ   :: serv
-  , serveState  :: TVar Bool
-  , nodeEnvList :: IOHashMap nid (NodeEnv1 u nid k rpkt tp)
-  , prepare     :: ServID serv -> ConnEnv tp -> IO (Maybe (nid, u))
-  , gen         :: IO k
-  , keepalive   :: Int64
-  , defSessTout :: Int64
-  , nodeMode    :: NodeMode
-  , serveName   :: String
+  { serveServ    :: serv
+  , serveState   :: TVar Bool
+  , nodeEnvList  :: IOHashMap nid (NodeEnv1 u nid k rpkt tp)
+  , prepare      :: ServID serv -> ConnEnv tp -> IO (Maybe (nid, u))
+  , gen          :: IO k
+  , keepalive    :: Int64
+  , defSessTout  :: Int64
+  , nodeMode     :: NodeMode
+  , serveName    :: String
+  , mapTransport :: (TransportConfig (STP serv) -> TransportConfig tp)
   }
 
 
@@ -96,9 +97,10 @@ initServerEnv
   :: (MonadIO m, Servable serv)
   => NodeMode -> String
   -> ServConfig serv -> Int64 -> Int64 -> IO k
+  -> (TransportConfig (STP serv) -> TransportConfig tp)
   -> (ServID serv -> ConnEnv tp -> IO (Maybe (nid, u)))
   -> m (ServerEnv serv u nid k rpkt tp)
-initServerEnv nodeMode serveName sc keepalive defSessTout gen prepare = do
+initServerEnv nodeMode serveName sc keepalive defSessTout gen mapTransport prepare = do
   serveServ <- newServ sc
   serveState <- newTVarIO True
   nodeEnvList <- newIOHashMap
@@ -106,15 +108,14 @@ initServerEnv nodeMode serveName sc keepalive defSessTout gen prepare = do
 
 serveForever
   :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Hashable nid, Eq k, Hashable k, GetPacketId k rpkt, RecvPacket rpkt, Servable serv)
-  => (TransportConfig (STP serv) -> TransportConfig tp)
-  -> SessionT u nid k rpkt tp m ()
+  => SessionT u nid k rpkt tp m ()
   -> ServerT serv u nid k rpkt tp m ()
-serveForever mk sess = do
+serveForever sess = do
   name <- asks serveName
   liftIO $ infoM "Metro.Servable" $ name ++ "Server started"
   state <- asks serveState
   void . runMaybeT . forever $ do
-    e <- lift $ tryServeOnce mk sess
+    e <- lift $ tryServeOnce sess
     when (isLeft e) mzero
     alive <- readTVarIO state
     unless alive mzero
@@ -122,23 +123,21 @@ serveForever mk sess = do
 
 tryServeOnce
   :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Hashable nid, Eq k, Hashable k, GetPacketId k rpkt, RecvPacket rpkt, Servable serv)
-  => (TransportConfig (STP serv) -> TransportConfig tp)
-  -> SessionT u nid k rpkt tp m ()
+  => SessionT u nid k rpkt tp m ()
   -> ServerT serv u nid k rpkt tp m (Either SomeException ())
-tryServeOnce mk sess = tryAny (serveOnce mk sess)
+tryServeOnce sess = tryAny (serveOnce sess)
 
 serveOnce
   :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Hashable nid, Eq k, Hashable k, GetPacketId k rpkt, RecvPacket rpkt, Servable serv)
-  => (TransportConfig (STP serv) -> TransportConfig tp)
-  -> SessionT u nid k rpkt tp m ()
+  => SessionT u nid k rpkt tp m ()
   -> ServerT serv u nid k rpkt tp m ()
-serveOnce mk sess = do
+serveOnce sess = do
   ServerEnv {..} <- ask
   r <- servOnce serveServ
   case r of
     Nothing -> return ()
     Just (servID, stp) -> void . async $ do
-      connEnv <- initConnEnv $ mk stp
+      connEnv <- initConnEnv $ mapTransport stp
       mnid <- liftIO $ prepare servID connEnv
       forM_ mnid $ \(nid, uEnv) ->
         void $ handleConn "Client" servID connEnv nid uEnv sess
@@ -176,12 +175,11 @@ handleConn n servID connEnv nid uEnv sess = do
 startServer
   :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Hashable nid, Eq k, Hashable k, GetPacketId k rpkt, RecvPacket rpkt, Servable serv)
   => ServerEnv serv u nid k rpkt tp
-  -> (TransportConfig (STP serv) -> TransportConfig tp)
   -> SessionT u nid k rpkt tp m ()
   -> m ()
-startServer sEnv mk sess = do
+startServer sEnv sess = do
   when (keepalive sEnv > 0) $ runCheckNodeState (keepalive sEnv) (nodeEnvList sEnv)
-  runServerT sEnv $ serveForever mk sess
+  runServerT sEnv $ serveForever sess
   liftIO $ close $ serveServ sEnv
 
 stopServerT :: (MonadIO m, Servable serv) => ServerT serv u nid k rpkt tp m ()
