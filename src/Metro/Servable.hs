@@ -64,7 +64,7 @@ data ServerEnv serv u nid k rpkt tp = ServerEnv
   , defSessTout  :: Int64
   , nodeMode     :: NodeMode
   , serveName    :: String
-  , mapTransport :: (TransportConfig (STP serv) -> TransportConfig tp)
+  , mapTransport :: TransportConfig (STP serv) -> TransportConfig tp
   }
 
 

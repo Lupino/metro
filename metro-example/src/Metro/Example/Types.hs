@@ -4,6 +4,7 @@
 
 module Metro.Example.Types
   ( PacketLength (..)
+  , File (..)
   , Packet (..)
   , Command (..)
   ) where
@@ -27,12 +28,24 @@ instance Binary PacketLength where
   get = PacketLength . fromIntegral <$> getWord16be
   put (PacketLength l) = putWord16be $ fromIntegral l
 
+data File = File ByteString ByteString deriving (Show, Eq)
+
+instance Binary File where
+  get = do
+    fnL <- fromIntegral <$> getWord8
+    fn <- getByteString fnL
+    File fn . toStrict <$> getRemainingLazyByteString
+  put (File fn bs) = do
+    putWord8 $ fromIntegral $ B.length fn
+    putByteString fn
+    putByteString bs
+
 data Command
   = Run ByteString
-  | Upload ByteString ByteString
+  | Upload File
   | Download ByteString
   | Data ByteString
-  | Append ByteString ByteString -- append a file
+  | Append File -- append a file
   | End -- close the client
   deriving (Show, Eq)
 
@@ -41,47 +54,37 @@ instance Binary Command where
     cmd <- getWord8
     case cmd of
       1 -> Run . toStrict <$> getRemainingLazyByteString
-      2 -> do
-        fnL <- fromIntegral <$> getWord8
-        fn <- getByteString fnL
-        Upload fn . toStrict <$> getRemainingLazyByteString
+      2 -> Upload <$> get
       3 -> Download . toStrict <$> getRemainingLazyByteString
       4 -> Data . toStrict <$> getRemainingLazyByteString
-      5 -> do
-        fnL <- fromIntegral <$> getWord8
-        fn <- getByteString fnL
-        Append fn . toStrict <$> getRemainingLazyByteString
+      5 -> Append <$> get
       6 -> return End
       _ -> fail "No such command"
 
   put (Run bs) = do
     putWord8 1
     putByteString bs
-  put (Upload fn bs) = do
+  put (Upload f) = do
     putWord8 2
-    putWord8 $ fromIntegral $ B.length fn
-    putByteString fn
-    putByteString bs
+    put f
   put (Download fn) = do
     putWord8 3
     putByteString fn
   put (Data bs) = do
     putWord8 4
     putByteString bs
-  put (Append fn bs) = do
+  put (Append f) = do
     putWord8 5
-    putWord8 $ fromIntegral $ B.length fn
-    putByteString fn
-    putByteString bs
+    put f
   put End = putWord8 6
 
 calcCommandLength :: Command -> Int
-calcCommandLength (Run bs)       = B.length bs + 1
-calcCommandLength (Upload fn bs) = B.length fn + B.length bs + 2
-calcCommandLength (Download fn)  = B.length fn + 1
-calcCommandLength (Data bs)      = B.length bs + 1
-calcCommandLength (Append fn bs) = B.length fn + B.length bs + 2
-calcCommandLength End            = 1
+calcCommandLength (Run bs)              = B.length bs + 1
+calcCommandLength (Upload (File fn bs)) = B.length fn + B.length bs + 2
+calcCommandLength (Download fn)         = B.length fn + 1
+calcCommandLength (Data bs)             = B.length bs + 1
+calcCommandLength (Append (File fn bs)) = B.length fn + B.length bs + 2
+calcCommandLength End                   = 1
 
 data Packet = Packet
   { packetLength :: PacketLength

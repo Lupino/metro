@@ -12,7 +12,7 @@ import           Data.Streaming.Network.Internal (HostPreference (Host))
 import           Metro                           (Transport)
 import           Metro.Example.Device            (DeviceEnv, request,
                                                   runDeviceT)
-import           Metro.Example.Types             (Command (..))
+import           Metro.Example.Types             (Command (..), File (..))
 import           Metro.IOHashMap                 (IOHashMap)
 import qualified Metro.IOHashMap                 as HM (lookup)
 import           Network.HTTP.Types              (status500)
@@ -51,7 +51,7 @@ requestHandler devicesEnv = do
 
 uploadHandler
   :: (Transport tp)
-  => (ByteString -> ByteString -> Command)
+  => (File -> Command)
   -> IOHashMap ByteString (DeviceEnv tp) -> ActionM ()
 uploadHandler cmd devicesEnv = do
   ip <- param "uuid"
@@ -63,7 +63,7 @@ uploadHandler cmd devicesEnv = do
       status status500
       json $ object [ "err" .= ("Device is offline" :: String) ]
     Just env1 -> do
-      r <- liftIO $ runDeviceT env1 $ request $ cmd fn $ toStrict wb
+      r <- liftIO $ runDeviceT env1 $ request $ cmd $ File fn $ toStrict wb
 
       responseCmd r
 

@@ -1,10 +1,8 @@
-{-# LANGUAGE FlexibleContexts           #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE MultiParamTypeClasses      #-}
-{-# LANGUAGE RecordWildCards            #-}
-{-# LANGUAGE ScopedTypeVariables        #-}
-{-# LANGUAGE TypeFamilies               #-}
-{-# LANGUAGE UndecidableInstances       #-}
+{-# LANGUAGE FlexibleContexts      #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE ScopedTypeVariables   #-}
+{-# LANGUAGE TypeFamilies          #-}
+{-# LANGUAGE UndecidableInstances  #-}
 
 module Metro.UDP
   ( UDPServer
@@ -44,8 +42,7 @@ instance Servable UDPServer where
   type STP UDPServer = BSTransport
   newServ (UDPConfig hostPort) = do
     sock <- liftIO $ bindTo hostPort
-    handleList <- newIOHashMap
-    return $ UDPServer sock handleList
+    UDPServer sock <$> newIOHashMap
   servOnce us@(UDPServer serv handleList) = do
     (bs, addr) <- liftIO $ recvFrom serv 1024
 
