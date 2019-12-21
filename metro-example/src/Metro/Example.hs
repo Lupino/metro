@@ -17,6 +17,9 @@ import           Data.Default.Class     (def)
 import           Data.List              (isPrefixOf)
 import           Data.Word              (Word16)
 import           Metro                  (NodeMode (..), request, withSessionT)
+import           Metro.Class            (Servable (STP),
+                                         Transport (TransportConfig))
+import qualified Metro.Class            as S (Servable (ServerConfig))
 import           Metro.Conn             (ConnEnv, close, initConnEnv, receive,
                                          runConnT)
 import           Metro.Example.Device   (DeviceEnv, initDeviceEnv, runDeviceT,
@@ -24,12 +27,10 @@ import           Metro.Example.Device   (DeviceEnv, initDeviceEnv, runDeviceT,
                                          startDeviceT)
 import           Metro.Example.Types    (Command (..), Packet (..))
 import           Metro.Example.Web      (startWeb)
-import           Metro.Servable         (Servable (STP, ServConfig), ServerEnv,
-                                         getNodeEnvList, initServerEnv,
-                                         startServer)
+import           Metro.Server           (ServerEnv, getNodeEnvList,
+                                         initServerEnv, startServer)
 import           Metro.Session          (send)
 import           Metro.TCP              (tcpConfig)
-import           Metro.Transport        (Transport, TransportConfig)
 import           Metro.Transport.Debug  (DebugMode (..), debugConfig)
 import           Metro.Transport.Socket (socketUri)
 import           Metro.UDP              (initUDPConnEnv, udpConfig)
@@ -62,7 +63,7 @@ type ExampleEnv serv = ServerEnv serv () ByteString Word16 Packet
 newMetroServer
   :: (Servable serv, Transport tp)
   => (TransportConfig (STP serv) -> TransportConfig tp)
-  -> NodeMode -> ServConfig serv -> Int -> Int -> IO (ExampleEnv serv tp)
+  -> NodeMode -> S.ServerConfig serv -> Int -> Int -> IO (ExampleEnv serv tp)
 newMetroServer mk mode config keepalive sessTout = do
   gen <- sessionGen
   sEnv <- initServerEnv mode "Example" config (fromIntegral keepalive) (fromIntegral sessTout) gen mk $ \_ connEnv -> do

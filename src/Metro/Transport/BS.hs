@@ -12,7 +12,7 @@ module Metro.Transport.BS
 import           Control.Monad   (when)
 import           Data.ByteString (ByteString, empty)
 import qualified Data.ByteString as B (drop, take)
-import           Metro.Transport
+import           Metro.Class     (Transport (..))
 import           UnliftIO
 
 newtype BSHandle = BSHandle (TVar ByteString)

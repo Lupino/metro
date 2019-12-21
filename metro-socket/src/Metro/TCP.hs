@@ -9,7 +9,7 @@ module Metro.TCP
   , tcpConfig
   ) where
 
-import           Metro.Servable         (Servable (..))
+import           Metro.Class            (Servable (..))
 import           Metro.Socket           (listen)
 import qualified Metro.Transport.Socket as T (Socket, rawSocket)
 import           Network.Socket         (Socket, SocketOption (KeepAlive),
@@ -20,17 +20,17 @@ import           UnliftIO               (liftIO)
 newtype TCPServer = TCPServer Socket
 
 instance Servable TCPServer where
-  data ServConfig TCPServer = TCPConfig String
-  type ServID TCPServer = Socket
+  data ServerConfig TCPServer = TCPConfig String
+  type SID TCPServer = Socket
   type STP TCPServer = T.Socket
-  newServ (TCPConfig hostPort) = liftIO $ TCPServer <$> listen hostPort
+  newServer (TCPConfig hostPort) = liftIO $ TCPServer <$> listen hostPort
   servOnce (TCPServer serv) = do
     (sock, _) <- liftIO $ accept serv
     liftIO $ setSocketOption sock KeepAlive 1
     return$ Just (sock, T.rawSocket sock)
   onConnEnter _ _ = return ()
   onConnLeave _ _ = return ()
-  close (TCPServer serv) = liftIO $ Socket.close serv
+  servClose (TCPServer serv) = liftIO $ Socket.close serv
 
-tcpConfig :: String -> ServConfig TCPServer
+tcpConfig :: String -> ServerConfig TCPServer
 tcpConfig = TCPConfig

@@ -1,18 +1,48 @@
 {-# LANGUAGE DefaultSignatures     #-}
+{-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE ScopedTypeVariables   #-}
+{-# LANGUAGE TypeFamilies          #-}
+{-# LANGUAGE UndecidableInstances  #-}
 
 module Metro.Class
-  ( RecvPacket (..)
+  ( Transport (..)
+  , TransportError (..)
+  , Servable (..)
+  , RecvPacket (..)
   , SendPacket (..)
   , sendBinary
   , SetPacketId (..)
   , GetPacketId (..)
   ) where
 
+import           Control.Exception    (Exception)
 import           Data.Binary          (Binary, encode)
 import           Data.ByteString      (ByteString)
 import           Data.ByteString.Lazy (toStrict)
 import           UnliftIO             (MonadIO)
+
+data TransportError = TransportClosed
+  deriving (Show, Eq, Ord)
+
+instance Exception TransportError
+
+class Transport transport where
+  data TransportConfig transport
+  newTransport   :: TransportConfig transport -> IO transport
+  recvData       :: transport -> Int -> IO ByteString
+  sendData       :: transport -> ByteString -> IO ()
+  closeTransport :: transport -> IO ()
+
+class Servable serv where
+  data ServerConfig serv
+  type SID serv
+  type STP serv
+  newServer    :: MonadIO m => ServerConfig serv -> m serv
+  servOnce    :: MonadIO m => serv -> m (Maybe (SID serv, TransportConfig (STP serv)))
+  onConnEnter :: MonadIO m => serv -> SID serv -> m ()
+  onConnLeave :: MonadIO m => serv -> SID serv -> m ()
+  servClose   :: MonadIO m => serv -> m ()
 
 class RecvPacket rpkt where
   recvPacket :: MonadIO m => (Int -> m ByteString) -> m rpkt

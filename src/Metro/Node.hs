@@ -39,7 +39,7 @@ import           Data.Hashable
 import           Data.Int                   (Int64)
 import           Data.Maybe                 (fromMaybe)
 import           Metro.Class                (GetPacketId, RecvPacket,
-                                             SendPacket, SetPacketId,
+                                             SendPacket, SetPacketId, Transport,
                                              getPacketId)
 import           Metro.Conn                 (ConnEnv, ConnT, FromConn (..),
                                              close, receive, runConnT)
@@ -49,7 +49,6 @@ import qualified Metro.IOHashMap            as HM (delete, elems, insert,
 import           Metro.Session              (SessionEnv (sessionId), SessionT,
                                              feed, isTimeout, runSessionT)
 import qualified Metro.Session              as S (newSessionEnv, receive, send)
-import           Metro.Transport            (Transport)
 import           Metro.Utils                (getEpochTime)
 import           UnliftIO
 import           UnliftIO.Concurrent        (threadDelay)

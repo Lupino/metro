@@ -30,11 +30,10 @@ import           Control.Monad.Reader.Class (MonadReader, asks)
 import           Control.Monad.Trans.Class  (MonadTrans (..))
 import           Control.Monad.Trans.Reader (ReaderT (..), runReaderT)
 import           Data.Int                   (Int64)
-import           Metro.Class                (SendPacket, SetPacketId,
+import           Metro.Class                (SendPacket, SetPacketId, Transport,
                                              setPacketId)
 import           Metro.Conn                 (ConnT, FromConn (..), statusTVar)
 import qualified Metro.Conn                 as Conn (send)
-import           Metro.Transport            (Transport)
 import           Metro.Utils                (getEpochTime)
 import           UnliftIO
 

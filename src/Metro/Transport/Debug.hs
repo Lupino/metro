@@ -8,7 +8,7 @@ module Metro.Transport.Debug
 
 import           Data.ByteString   (ByteString)
 import           Data.Hex          (hex)
-import           Metro.Transport
+import           Metro.Class       (Transport (..))
 import           System.Log.Logger (debugM)
 
 data Debug tp = Debug String (ByteString -> String) tp

@@ -27,7 +27,6 @@ import qualified Data.ByteString            as B (concat, drop, empty, length,
                                                   null, take)
 import           Metro.Class
 import qualified Metro.Lock                 as L (Lock, new, with)
-import           Metro.Transport
 import           UnliftIO
 
 data ConnEnv tp = ConnEnv

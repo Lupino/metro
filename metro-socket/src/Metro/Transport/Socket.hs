@@ -5,8 +5,8 @@ module Metro.Transport.Socket
   , socketUri
   ) where
 
+import           Metro.Class               (Transport (..))
 import           Metro.Socket              (connect)
-import           Metro.Transport
 import           Network.Socket            (close)
 import qualified Network.Socket            as S (Socket)
 import           Network.Socket.ByteString (recv, sendAll)

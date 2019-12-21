@@ -15,16 +15,17 @@ module Metro.UDP
 import           Control.Monad             (forever, void)
 import           Data.ByteString           (ByteString, empty)
 import           Data.Hashable
-import           Metro.Class               (GetPacketId, RecvPacket)
+import           Metro.Class               (GetPacketId, RecvPacket,
+                                            Servable (..), Transport,
+                                            TransportConfig)
 import           Metro.Conn
 import           Metro.IOHashMap           (IOHashMap, newIOHashMap)
 import qualified Metro.IOHashMap           as HM (delete, insert, lookup)
 import           Metro.Node                (NodeEnv1)
-import           Metro.Servable            (Servable (..), ServerT, getServ,
-                                            handleConn, serverEnv)
+import           Metro.Server              (ServerT, getServ, handleConn,
+                                            serverEnv)
 import           Metro.Session             (SessionT)
 import           Metro.Socket              (bindTo, getDatagramAddr)
-import           Metro.Transport           (Transport, TransportConfig)
 import           Metro.Transport.BS        (BSHandle, BSTransport,
                                             bsTransportConfig, feed,
                                             newBSHandle)
@@ -37,10 +38,10 @@ import           UnliftIO
 data UDPServer = UDPServer Socket (IOHashMap String BSHandle)
 
 instance Servable UDPServer where
-  data ServConfig UDPServer = UDPConfig String
-  type ServID UDPServer = SockAddr
+  data ServerConfig UDPServer = UDPConfig String
+  type SID UDPServer = SockAddr
   type STP UDPServer = BSTransport
-  newServ (UDPConfig hostPort) = do
+  newServer (UDPConfig hostPort) = do
     sock <- liftIO $ bindTo hostPort
     UDPServer sock <$> newIOHashMap
   servOnce us@(UDPServer serv handleList) = do
@@ -55,9 +56,9 @@ instance Servable UDPServer where
 
   onConnEnter _ _ = return ()
   onConnLeave (UDPServer _ handleList) addr = HM.delete handleList (show addr)
-  close (UDPServer serv _) = liftIO $ Socket.close serv
+  servClose (UDPServer serv _) = liftIO $ Socket.close serv
 
-udpConfig :: String -> ServConfig UDPServer
+udpConfig :: String -> ServerConfig UDPServer
 udpConfig = UDPConfig
 
 newTransportConfig
