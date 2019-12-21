@@ -17,7 +17,8 @@ import           Data.Default.Class     (def)
 import           Data.List              (isPrefixOf)
 import           Data.Word              (Word16)
 import           Metro                  (NodeMode (..), request, withSessionT)
-import           Metro.Conn             (close, initConnEnv, receive, runConnT)
+import           Metro.Conn             (ConnEnv, close, initConnEnv, receive,
+                                         runConnT)
 import           Metro.Example.Device   (DeviceEnv, initDeviceEnv, runDeviceT,
                                          sessionGen, sessionHandler,
                                          startDeviceT)
@@ -25,13 +26,13 @@ import           Metro.Example.Types    (Command (..), Packet (..))
 import           Metro.Example.Web      (startWeb)
 import           Metro.Servable         (Servable (STP, ServConfig), ServerEnv,
                                          getNodeEnvList, initServerEnv,
-                                         runServerT, startServer, stopServerT)
+                                         startServer)
 import           Metro.Session          (send)
 import           Metro.TCP              (tcpConfig)
 import           Metro.Transport        (Transport, TransportConfig)
 import           Metro.Transport.Debug  (DebugMode (..), debugConfig)
 import           Metro.Transport.Socket (socketUri)
-import           Metro.UDP              (newClient, udpConfig)
+import           Metro.UDP              (initUDPConnEnv, udpConfig)
 import           Metro.Utils            (setupLog)
 import           System.Log             (Priority (..))
 import           UnliftIO               (liftIO)
@@ -88,15 +89,16 @@ startMetroClient :: ServerConfig -> IO ()
 startMetroClient ServerConfig {..} = do
   setupLog logLevel
   if "udp" `isPrefixOf` sockPort then do
-    sEnv <- newMetroServer (debugConfig "ExampleClient" Raw) Multi (udpConfig "udp://0.0.0.0:0") 0 sessTout
-    env0 <- runServerT sEnv $ newClient (debugConfig "ExampleClient" Raw) sockPort "client" () sessionHandler
+    env0 <- initUDPConnEnv (debugConfig "ExampleClient" Raw) sockPort
     case env0 of
-      Nothing   -> do
-        putStrLn "error"
-        runServerT sEnv stopServerT
-      Just env1 -> runAction env1
+      Nothing   -> putStrLn "error"
+      Just env1 -> runMetroClient env1
   else do
     connEnv <- initConnEnv (debugConfig "ExampleClient" Raw $ socketUri sockPort)
+    runMetroClient connEnv
+
+runMetroClient :: Transport tp => ConnEnv tp -> IO ()
+runMetroClient connEnv = do
     env0 <- initDeviceEnv connEnv "metro-client"
     void . forkIO $ startDeviceT env0
     runAction env0
