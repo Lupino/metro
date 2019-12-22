@@ -42,7 +42,7 @@ keepalive = 300
 bind_port = "tcp://:8080"
 
 startExampleServer = do
-  sEnv <- initServerEnv Multi "Example" (tcpConfig "tcp://:8080") keepalive sessionTimeout sessionGen rawSocket prepare
+  sEnv <- initServerEnv "Example" (tcpConfig "tcp://:8080") sessionGen rawSocket prepare
   void $ forkIO $ startServer sEnv sessionHandler
 ```
 

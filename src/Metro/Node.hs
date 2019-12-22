@@ -13,6 +13,11 @@ module Metro.Node
   , SessionMode (..)
   , NodeT
   , initEnv
+
+  , setNodeMode
+  , setSessionMode
+  , setDefaultSessionTimeout
+
   , runNodeT
   , startNodeT
   , withSessionT
@@ -115,17 +120,34 @@ runNodeT nEnv = flip runReaderT nEnv . unNodeT
 runNodeT1 :: NodeEnv1 u nid k rpkt tp -> NodeT u nid k rpkt tp m a -> m a
 runNodeT1 NodeEnv1 {..} = runConnT connEnv . runNodeT nodeEnv
 
-initEnv :: MonadIO m => NodeMode -> SessionMode -> u -> nid -> Int64 -> IO k -> m (NodeEnv u nid k rpkt)
-initEnv nodeMode sessionMode uEnv nodeId sessTimeout sessionGen = do
+initEnv :: MonadIO m => u -> nid -> IO k -> m (NodeEnv u nid k rpkt)
+initEnv uEnv nodeId sessionGen = do
   nodeStatus <- newTVarIO True
   nodeSession <- newTVarIO Nothing
   sessionList <- newIOHashMap
   nodeTimer <- newTVarIO =<< getEpochTime
-  pure NodeEnv{..}
+  pure NodeEnv
+    { nodeMode    = Multi
+    , sessionMode = SingleAction
+    , sessTimeout = 300
+    , ..
+    }
 
-initEnv1 :: MonadIO m => NodeMode -> SessionMode -> ConnEnv tp -> u -> nid -> Int64 -> IO k -> m (NodeEnv1 u nid k rpkt tp)
-initEnv1 m sm connEnv uEnv nid tout gen = do
-  nodeEnv <- initEnv m sm uEnv nid tout gen
+setNodeMode :: NodeMode -> NodeEnv u nid k rpkt -> NodeEnv u nid k rpkt
+setNodeMode mode nodeEnv = nodeEnv {nodeMode = mode}
+
+setSessionMode :: SessionMode -> NodeEnv u nid k rpkt -> NodeEnv u nid k rpkt
+setSessionMode mode nodeEnv = nodeEnv {sessionMode = mode}
+
+setDefaultSessionTimeout :: Int64 -> NodeEnv u nid k rpkt -> NodeEnv u nid k rpkt
+setDefaultSessionTimeout t nodeEnv = nodeEnv { sessTimeout = t }
+
+initEnv1
+  :: MonadIO m
+  => (NodeEnv u nid k rpkt -> NodeEnv u nid k rpkt)
+  -> ConnEnv tp -> u -> nid -> IO k -> m (NodeEnv1 u nid k rpkt tp)
+initEnv1 mapEnv connEnv uEnv nid gen = do
+  nodeEnv <- mapEnv <$> initEnv uEnv nid gen
   return NodeEnv1 {..}
 
 runSessionT_ :: Monad m => SessionEnv u nid k rpkt -> SessionT u nid k rpkt tp m a -> NodeT u nid k rpkt tp m a

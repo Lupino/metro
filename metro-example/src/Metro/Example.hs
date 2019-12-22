@@ -29,7 +29,10 @@ import           Metro.Example.Device   (DeviceEnv, initDeviceEnv, runDeviceT,
 import           Metro.Example.Types    (Command (..), Packet (..))
 import           Metro.Example.Web      (startWeb)
 import           Metro.Server           (ServerEnv, getNodeEnvList,
-                                         initServerEnv, startServer)
+                                         initServerEnv,
+                                         setDefaultSessionTimeout, setKeepalive,
+                                         setNodeMode, setServerName,
+                                         setSessionMode, startServer)
 import           Metro.Session          (send)
 import           Metro.TCP              (tcpConfig)
 import           Metro.Transport.Debug  (DebugMode (..), debugConfig)
@@ -64,10 +67,12 @@ type ExampleEnv serv = ServerEnv serv () ByteString Word16 Packet
 newMetroServer
   :: (Servable serv, Transport tp)
   => (TransportConfig (STP serv) -> TransportConfig tp)
-  -> NodeMode -> SessionMode -> S.ServerConfig serv -> Int -> Int -> IO (ExampleEnv serv tp)
-newMetroServer mk mode smode config keepalive sessTout = do
+  -> S.ServerConfig serv
+  -> (ExampleEnv serv tp -> ExampleEnv serv tp)
+  -> IO (ExampleEnv serv tp)
+newMetroServer mk config mapEnv = do
   gen <- sessionGen
-  sEnv <- initServerEnv mode smode "Example" config (fromIntegral keepalive) (fromIntegral sessTout) gen mk $ \_ connEnv -> do
+  sEnv <- fmap mapEnv . initServerEnv config gen mk $ \_ connEnv -> do
     cmd <- packetCmd <$> runConnT connEnv receive
     case cmd of
       Data nid -> return $ Just (nid, ())
@@ -81,11 +86,19 @@ startMetroServer :: ServerConfig -> IO ()
 startMetroServer ServerConfig {..} = do
   setupLog logLevel
   if "udp" `isPrefixOf` sockPort then do
-    sEnv <- newMetroServer (debugConfig "Example" Raw) Multi SingleAction (udpConfig sockPort) 0 sessTout
+    sEnv <- newMetroServer (debugConfig "Example" Raw) (udpConfig sockPort) mapEnv
     startWeb (getNodeEnvList sEnv) webHost webPort
   else do
-    sEnv <- newMetroServer (debugConfig "Example" Raw) Multi SingleAction (tcpConfig sockPort) keepalive sessTout
+    sEnv <- newMetroServer (debugConfig "Example" Raw) (tcpConfig sockPort) mapEnv
     startWeb (getNodeEnvList sEnv) webHost webPort
+
+  where mapEnv :: ExampleEnv serv tp -> ExampleEnv serv tp
+        mapEnv =
+          setNodeMode Multi
+          . setSessionMode SingleAction
+          . setKeepalive (fromIntegral keepalive)
+          . setDefaultSessionTimeout (fromIntegral sessTout)
+          . setServerName "Example"
 
 startMetroClient :: ServerConfig -> IO ()
 startMetroClient ServerConfig {..} = do

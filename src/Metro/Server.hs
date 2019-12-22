@@ -15,6 +15,14 @@ module Metro.Server
   , getServ
   , serverEnv
   , initServerEnv
+
+  -- server env action
+  , setServerName
+  , setNodeMode
+  , setSessionMode
+  , setDefaultSessionTimeout
+  , setKeepalive
+
   , runServerT
   , stopServerT
   , handleConn
@@ -36,9 +44,11 @@ import           Metro.Conn                 hiding (close)
 import           Metro.IOHashMap            (IOHashMap, newIOHashMap)
 import qualified Metro.IOHashMap            as HM (delete, elems, insertSTM,
                                                    lookupSTM)
-import           Metro.Node                 (NodeEnv1, NodeMode, SessionMode,
-                                             getNodeId, getTimer, initEnv1,
-                                             runNodeT1, startNodeT, stopNodeT)
+import           Metro.Node                 (NodeEnv1, NodeMode (..),
+                                             SessionMode (..), getNodeId,
+                                             getTimer, initEnv1, runNodeT1,
+                                             startNodeT, stopNodeT)
+import qualified Metro.Node                 as Node
 import           Metro.Session              (SessionT)
 import           Metro.Utils                (getEpochTime)
 import           System.Log.Logger          (infoM)
@@ -87,16 +97,42 @@ runServerT sEnv = flip runReaderT sEnv . unServerT
 
 initServerEnv
   :: (MonadIO m, Servable serv)
-  => NodeMode -> SessionMode -> String
-  -> ServerConfig serv -> Int64 -> Int64 -> IO k
+  => ServerConfig serv -> IO k
   -> (TransportConfig (STP serv) -> TransportConfig tp)
   -> (SID serv -> ConnEnv tp -> IO (Maybe (nid, u)))
   -> m (ServerEnv serv u nid k rpkt tp)
-initServerEnv nodeMode sessionMode serveName sc keepalive defSessTout gen mapTransport prepare = do
+initServerEnv sc gen mapTransport prepare = do
   serveServ   <- newServer sc
   serveState  <- newTVarIO True
   nodeEnvList <- newIOHashMap
-  pure ServerEnv{..}
+  pure ServerEnv
+    { nodeMode    = Multi
+    , sessionMode = SingleAction
+    , serveName   = "Metro"
+    , keepalive   = 0
+    , defSessTout = 300
+    , ..
+    }
+
+setNodeMode
+  :: NodeMode -> ServerEnv serv u nid k rpkt tp -> ServerEnv serv u nid k rpkt tp
+setNodeMode mode sEnv = sEnv {nodeMode = mode}
+
+setSessionMode
+  :: SessionMode -> ServerEnv serv u nid k rpkt tp -> ServerEnv serv u nid k rpkt tp
+setSessionMode mode sEnv = sEnv {sessionMode = mode}
+
+setServerName
+  :: String -> ServerEnv serv u nid k rpkt tp -> ServerEnv serv u nid k rpkt tp
+setServerName n sEnv = sEnv {serveName = n}
+
+setKeepalive
+  :: Int64 -> ServerEnv serv u nid k rpkt tp -> ServerEnv serv u nid k rpkt tp
+setKeepalive k sEnv = sEnv {keepalive = k}
+
+setDefaultSessionTimeout
+  :: Int64 -> ServerEnv serv u nid k rpkt tp -> ServerEnv serv u nid k rpkt tp
+setDefaultSessionTimeout t sEnv = sEnv {defSessTout = t}
 
 serveForever
   :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Hashable nid, Eq k, Hashable k, GetPacketId k rpkt, RecvPacket rpkt, Servable serv)
@@ -147,7 +183,10 @@ handleConn n servID connEnv nid uEnv sess = do
     ServerEnv {..} <- ask
 
     liftIO $ infoM "Metro.Servable" (serveName ++ n ++ ": " ++ show nid ++ " connected")
-    env0 <- initEnv1 nodeMode sessionMode connEnv uEnv nid defSessTout gen
+    env0 <- initEnv1
+      (Node.setNodeMode nodeMode
+      . Node.setSessionMode sessionMode
+      . Node.setDefaultSessionTimeout defSessTout) connEnv uEnv nid gen
 
     env1 <- atomically $ do
       v <- HM.lookupSTM nodeEnvList nid
