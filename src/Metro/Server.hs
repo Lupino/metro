@@ -36,9 +36,9 @@ import           Metro.Conn                 hiding (close)
 import           Metro.IOHashMap            (IOHashMap, newIOHashMap)
 import qualified Metro.IOHashMap            as HM (delete, elems, insertSTM,
                                                    lookupSTM)
-import           Metro.Node                 (NodeEnv1, NodeMode, getNodeId,
-                                             getTimer, initEnv1, runNodeT1,
-                                             startNodeT, stopNodeT)
+import           Metro.Node                 (NodeEnv1, NodeMode, SessionMode,
+                                             getNodeId, getTimer, initEnv1,
+                                             runNodeT1, startNodeT, stopNodeT)
 import           Metro.Session              (SessionT)
 import           Metro.Utils                (getEpochTime)
 import           System.Log.Logger          (infoM)
@@ -54,6 +54,7 @@ data ServerEnv serv u nid k rpkt tp = ServerEnv
   , keepalive    :: Int64
   , defSessTout  :: Int64
   , nodeMode     :: NodeMode
+  , sessionMode  :: SessionMode
   , serveName    :: String
   , mapTransport :: TransportConfig (STP serv) -> TransportConfig tp
   }
@@ -86,12 +87,12 @@ runServerT sEnv = flip runReaderT sEnv . unServerT
 
 initServerEnv
   :: (MonadIO m, Servable serv)
-  => NodeMode -> String
+  => NodeMode -> SessionMode -> String
   -> ServerConfig serv -> Int64 -> Int64 -> IO k
   -> (TransportConfig (STP serv) -> TransportConfig tp)
   -> (SID serv -> ConnEnv tp -> IO (Maybe (nid, u)))
   -> m (ServerEnv serv u nid k rpkt tp)
-initServerEnv nodeMode serveName sc keepalive defSessTout gen mapTransport prepare = do
+initServerEnv nodeMode sessionMode serveName sc keepalive defSessTout gen mapTransport prepare = do
   serveServ   <- newServer sc
   serveState  <- newTVarIO True
   nodeEnvList <- newIOHashMap
@@ -146,7 +147,7 @@ handleConn n servID connEnv nid uEnv sess = do
     ServerEnv {..} <- ask
 
     liftIO $ infoM "Metro.Servable" (serveName ++ n ++ ": " ++ show nid ++ " connected")
-    env0 <- initEnv1 nodeMode connEnv uEnv nid defSessTout gen
+    env0 <- initEnv1 nodeMode sessionMode connEnv uEnv nid defSessTout gen
 
     env1 <- atomically $ do
       v <- HM.lookupSTM nodeEnvList nid

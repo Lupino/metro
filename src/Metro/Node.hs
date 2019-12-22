@@ -10,6 +10,7 @@
 module Metro.Node
   ( NodeEnv
   , NodeMode (..)
+  , SessionMode (..)
   , NodeT
   , initEnv
   , runNodeT
@@ -53,13 +54,23 @@ import           Metro.Utils                (getEpochTime)
 import           UnliftIO
 import           UnliftIO.Concurrent        (threadDelay)
 
-data NodeMode = Single | Multi deriving (Show, Eq)
+data NodeMode =
+  Single  -- single session at a time
+  | Multi -- multi  session at a time
+  deriving (Show, Eq)
+
+data SessionMode =
+  SingleAction  -- a session only handle signe action
+  | MultiAction -- a session can handle multi action,
+                -- only support on multi node mode
+  deriving (Show, Eq)
 
 
 data NodeEnv u nid k rpkt = NodeEnv
   { uEnv        :: u
   , nodeStatus  :: TVar Bool
   , nodeMode    :: NodeMode
+  , sessionMode :: SessionMode
   , nodeSession :: TVar (Maybe (SessionEnv u nid k rpkt))
   , sessionList :: IOHashMap k (SessionEnv u nid k rpkt)
   , sessionGen  :: IO k
@@ -104,17 +115,17 @@ runNodeT nEnv = flip runReaderT nEnv . unNodeT
 runNodeT1 :: NodeEnv1 u nid k rpkt tp -> NodeT u nid k rpkt tp m a -> m a
 runNodeT1 NodeEnv1 {..} = runConnT connEnv . runNodeT nodeEnv
 
-initEnv :: MonadIO m => NodeMode -> u -> nid -> Int64 -> IO k -> m (NodeEnv u nid k rpkt)
-initEnv nodeMode uEnv nodeId sessTimeout sessionGen = do
+initEnv :: MonadIO m => NodeMode -> SessionMode -> u -> nid -> Int64 -> IO k -> m (NodeEnv u nid k rpkt)
+initEnv nodeMode sessionMode uEnv nodeId sessTimeout sessionGen = do
   nodeStatus <- newTVarIO True
   nodeSession <- newTVarIO Nothing
   sessionList <- newIOHashMap
   nodeTimer <- newTVarIO =<< getEpochTime
   pure NodeEnv{..}
 
-initEnv1 :: MonadIO m => NodeMode -> ConnEnv tp -> u -> nid -> Int64 -> IO k -> m (NodeEnv1 u nid k rpkt tp)
-initEnv1 m connEnv uEnv nid tout gen = do
-  nodeEnv <- initEnv m uEnv nid tout gen
+initEnv1 :: MonadIO m => NodeMode -> SessionMode -> ConnEnv tp -> u -> nid -> Int64 -> IO k -> m (NodeEnv1 u nid k rpkt tp)
+initEnv1 m sm connEnv uEnv nid tout gen = do
+  nodeEnv <- initEnv m sm uEnv nid tout gen
   return NodeEnv1 {..}
 
 runSessionT_ :: Monad m => SessionEnv u nid k rpkt -> SessionT u nid k rpkt tp m a -> NodeT u nid k rpkt tp m a
@@ -194,6 +205,10 @@ doFeed rpkt sessionHandler = do
     Nothing    -> do
       let sid = getPacketId rpkt
       sEnv <- S.newSessionEnv uEnv nodeId sid sessTimeout [Just rpkt]
+      when (sessionMode == MultiAction) $
+        case nodeMode of
+          Single -> atomically $ writeTVar nodeSession $ Just sEnv
+          Multi  -> HM.insert sessionList sid sEnv
       runSessionT_ sEnv sessionHandler
 
 startNodeT
