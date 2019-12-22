@@ -186,11 +186,8 @@ doFeed
 doFeed rpkt sessionHandler = do
   NodeEnv{..} <- ask
   v <- case nodeMode of
-         Single -> atomically $ do
-           sess <- readTVar nodeSession
-           writeTVar nodeSession Nothing
-           return sess
-         Multi -> HM.lookup sessionList $ getPacketId rpkt
+         Single -> readTVarIO nodeSession
+         Multi  -> HM.lookup sessionList $ getPacketId rpkt
   case v of
     Just aEnv ->
       runSessionT_ aEnv $ feed $ Just rpkt
