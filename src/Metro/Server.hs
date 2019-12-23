@@ -140,14 +140,14 @@ serveForever
   -> ServerT serv u nid k rpkt tp m ()
 serveForever sess = do
   name <- asks serveName
-  liftIO $ infoM "Metro.Servable" $ name ++ "Server started"
+  liftIO $ infoM "Metro.Server" $ name ++ "Server started"
   state <- asks serveState
   void . runMaybeT . forever $ do
     e <- lift $ tryServeOnce sess
     when (isLeft e) mzero
     alive <- readTVarIO state
     unless alive mzero
-  liftIO $ infoM "Metro.Servable" $ name ++ "Server closed"
+  liftIO $ infoM "Metro.Server" $ name ++ "Server closed"
 
 tryServeOnce
   :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Hashable nid, Eq k, Hashable k, GetPacketId k rpkt, RecvPacket rpkt, Servable serv)
@@ -182,7 +182,7 @@ handleConn
 handleConn n servID connEnv nid uEnv sess = do
     ServerEnv {..} <- ask
 
-    liftIO $ infoM "Metro.Servable" (serveName ++ n ++ ": " ++ show nid ++ " connected")
+    liftIO $ infoM "Metro.Server" (serveName ++ n ++ ": " ++ show nid ++ " connected")
     env0 <- initEnv1
       (Node.setNodeMode nodeMode
       . Node.setSessionMode sessionMode
@@ -199,7 +199,7 @@ handleConn n servID connEnv nid uEnv sess = do
       onConnEnter serveServ servID
       lift . runNodeT1 env0 $ startNodeT sess
       onConnLeave serveServ servID
-      liftIO $ infoM "Metro.Servable" (serveName ++ n ++ ": " ++ show nid ++ " disconnected")
+      liftIO $ infoM "Metro.Server" (serveName ++ n ++ ": " ++ show nid ++ " disconnected")
 
     return env0
 
