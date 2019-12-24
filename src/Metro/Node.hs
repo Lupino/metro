@@ -214,7 +214,7 @@ tryDoFeed rpkt sessionHandler = do
     Right _ -> pure ()
 
 doFeed
-  :: (MonadIO m, GetPacketId k rpkt, Eq k, Hashable k)
+  :: (MonadUnliftIO m, GetPacketId k rpkt, Eq k, Hashable k)
   => rpkt -> SessionT u nid k rpkt tp m () -> NodeT u nid k rpkt tp m ()
 doFeed rpkt sessionHandler = do
   NodeEnv{..} <- ask
@@ -231,7 +231,8 @@ doFeed rpkt sessionHandler = do
         case nodeMode of
           Single -> atomically $ writeTVar nodeSession $ Just sEnv
           Multi  -> HM.insert sessionList sid sEnv
-      runSessionT_ sEnv sessionHandler
+      bracket (return sid) removeSession $ \_ ->
+        runSessionT_ sEnv sessionHandler
 
 startNodeT
   :: (MonadUnliftIO m, Transport tp, RecvPacket rpkt, GetPacketId k rpkt, Eq k, Hashable k)
