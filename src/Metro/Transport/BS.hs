@@ -5,24 +5,31 @@ module Metro.Transport.BS
   ( BSTransport
   , BSHandle
   , newBSHandle
+  , newBSHandle_
   , feed
   , bsTransportConfig
   ) where
 
 import           Control.Monad   (when)
 import           Data.ByteString (ByteString, empty)
-import qualified Data.ByteString as B (drop, take)
+import qualified Data.ByteString as B (drop, length, take)
 import           Metro.Class     (Transport (..))
 import           UnliftIO
 
-newtype BSHandle = BSHandle (TVar ByteString)
+data BSHandle = BSHandle Int (TVar ByteString)
 
 newBSHandle :: MonadIO m => ByteString -> m BSHandle
-newBSHandle bs = BSHandle <$> newTVarIO bs
+newBSHandle = newBSHandle_ 4096
+
+newBSHandle_ :: MonadIO m => Int -> ByteString -> m BSHandle
+newBSHandle_ size bs = BSHandle size <$> newTVarIO bs
 
 feed :: MonadIO m => BSHandle -> ByteString -> m ()
-feed (BSHandle h) bs = atomically $ do
+feed (BSHandle size h) bs = atomically $ do
   bs0 <- readTVar h
+
+  when (B.length bs0 > size) retrySTM
+
   writeTVar h $ bs0 <> bs
 
 data BSTransport = BS
@@ -33,7 +40,7 @@ data BSTransport = BS
 
 instance Transport BSTransport where
   data TransportConfig BSTransport = BSConfig BSHandle (ByteString -> IO ())
-  newTransport (BSConfig (BSHandle bsHandle) bsWriter) = do
+  newTransport (BSConfig (BSHandle _ bsHandle) bsWriter) = do
     bsState <- newTVarIO True
     return BS {..}
   recvData BS {..} nbytes = atomically $ do

@@ -10,7 +10,6 @@ module Metro.UDP
   , newClient
   ) where
 
-import           Control.Monad             (forever, void)
 import           Data.ByteString           (ByteString, empty)
 import           Data.Hashable
 import           Metro.Class               (GetPacketId, RecvPacket,
