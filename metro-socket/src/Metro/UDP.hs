@@ -8,8 +8,6 @@ module Metro.UDP
   ( UDPServer
   , udpConfig
   , newClient
-
-  , initUDPConnEnv
   ) where
 
 import           Control.Monad             (forever, void)
@@ -91,28 +89,3 @@ newClient mk hostPort nid uEnv sess = do
       config <- mk <$> newTransportConfig us (addrAddress addr0) empty
       connEnv <- initConnEnv config
       Just <$> handleConn "Server" (addrAddress addr0) connEnv nid uEnv sess
-
-initUDPConnEnv
-  :: (MonadUnliftIO m, Transport tp)
-  => (TransportConfig BSTransport -> TransportConfig tp)
-  -> String
-  -> m (Maybe (ConnEnv tp))
-initUDPConnEnv mk hostPort = do
-  addr <- liftIO $ getDatagramAddr hostPort
-  case addr of
-    Nothing -> do
-      liftIO $ errorM "Metro.UDP" $ "Connect UDP Server " ++ hostPort ++ " failed"
-      return Nothing
-    Just addrInfo -> do
-      let addr0 = addrAddress addrInfo
-      bsHandle <- newBSHandle empty
-      sock <- liftIO $ bindTo "udp://0.0.0.0:0"
-
-      void $ async $ forever $ do
-        (bs, addr1) <- liftIO $ recvFrom sock 1024
-        if addr0 == addr1 then feed bsHandle bs
-        else liftIO $ errorM "Metro.UDP" $ "Receive unkonw address " ++ show addr1
-
-      connEnv <- initConnEnv . mk $ bsTransportConfig bsHandle $ flip (sendAllTo sock) addr0
-
-      return $ Just connEnv

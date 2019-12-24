@@ -9,39 +9,41 @@ module Metro.Example
   , startMetroClient
   ) where
 
-import           Control.Monad          (forever, void)
-import           Data.Aeson             (FromJSON, parseJSON, withObject, (.!=),
-                                         (.:), (.:?))
-import           Data.ByteString        (ByteString)
-import           Data.Default.Class     (def)
-import           Data.List              (isPrefixOf)
-import           Data.Word              (Word16)
-import           Metro                  (NodeMode (..), SessionMode (..),
-                                         request, withSessionT)
-import           Metro.Class            (Servable (STP),
-                                         Transport (TransportConfig))
-import qualified Metro.Class            as S (Servable (ServerConfig))
-import           Metro.Conn             (ConnEnv, close, initConnEnv, receive,
-                                         runConnT)
-import           Metro.Example.Device   (DeviceEnv, initDeviceEnv, runDeviceT,
-                                         sessionGen, sessionHandler,
-                                         startDeviceT)
-import           Metro.Example.Types    (Command (..), Packet (..))
-import           Metro.Example.Web      (startWeb)
-import           Metro.Server           (ServerEnv, getNodeEnvList,
-                                         initServerEnv,
-                                         setDefaultSessionTimeout, setKeepalive,
-                                         setNodeMode, setServerName,
-                                         setSessionMode, startServer)
-import           Metro.Session          (send)
-import           Metro.TCP              (tcpConfig)
-import           Metro.Transport.Debug  (DebugMode (..), debugConfig)
-import           Metro.Transport.Socket (socketUri)
-import           Metro.UDP              (initUDPConnEnv, udpConfig)
-import           Metro.Utils            (setupLog)
-import           System.Log             (Priority (..))
-import           UnliftIO               (liftIO)
-import           UnliftIO.Concurrent    (forkIO, threadDelay)
+import           Control.Monad             (forever, void)
+import           Data.Aeson                (FromJSON, parseJSON, withObject,
+                                            (.!=), (.:), (.:?))
+import           Data.ByteString           (ByteString)
+import           Data.Default.Class        (def)
+import           Data.List                 (isPrefixOf)
+import           Data.Word                 (Word16)
+import           Metro                     (NodeMode (..), SessionMode (..),
+                                            request, withSessionT)
+import           Metro.Class               (Servable (STP),
+                                            Transport (TransportConfig))
+import qualified Metro.Class               as S (Servable (ServerConfig))
+import           Metro.Conn                (close, initConnEnv, receive,
+                                            runConnT)
+import           Metro.Example.Device      (DeviceEnv, initDeviceEnv,
+                                            runDeviceT, sessionGen,
+                                            sessionHandler, startDeviceT)
+import           Metro.Example.Types       (Command (..), Packet (..))
+import           Metro.Example.Web         (startWeb)
+import           Metro.Server              (ServerEnv, getNodeEnvList,
+                                            initServerEnv,
+                                            setDefaultSessionTimeout,
+                                            setKeepalive, setNodeMode,
+                                            setServerName, setSessionMode,
+                                            startServer)
+import           Metro.Session             (send)
+import           Metro.TCP                 (tcpConfig)
+import           Metro.Transport.Debug     (DebugMode (..), debugConfig)
+import           Metro.Transport.Socket    (socketUri)
+import           Metro.Transport.UDPSocket (udpSocket)
+import           Metro.UDP                 (udpConfig)
+import           Metro.Utils               (setupLog)
+import           System.Log                (Priority (..))
+import           UnliftIO                  (liftIO)
+import           UnliftIO.Concurrent       (forkIO, threadDelay)
 
 data ServerConfig = ServerConfig
   { webHost   :: String
@@ -103,17 +105,14 @@ startMetroServer ServerConfig {..} = do
 startMetroClient :: ServerConfig -> IO ()
 startMetroClient ServerConfig {..} = do
   setupLog logLevel
-  if "udp" `isPrefixOf` sockPort then do
-    env0 <- initUDPConnEnv (debugConfig "ExampleClient" Raw) sockPort
-    case env0 of
-      Nothing   -> putStrLn "error"
-      Just env1 -> runMetroClient env1
-  else do
-    connEnv <- initConnEnv (debugConfig "ExampleClient" Raw $ socketUri sockPort)
-    runMetroClient connEnv
+  if "udp" `isPrefixOf` sockPort then
+    runMetroClient $ udpSocket sockPort
+  else
+    runMetroClient $ socketUri sockPort
 
-runMetroClient :: Transport tp => ConnEnv tp -> IO ()
-runMetroClient connEnv = do
+runMetroClient :: Transport tp => TransportConfig tp -> IO ()
+runMetroClient config = do
+    connEnv <- initConnEnv (debugConfig "ExampleClient" Raw config)
     env0 <- initDeviceEnv connEnv "metro-client"
     void . forkIO $ startDeviceT env0
     runAction env0
