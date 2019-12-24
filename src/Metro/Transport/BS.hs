@@ -16,21 +16,23 @@ import qualified Data.ByteString as B (drop, length, take)
 import           Metro.Class     (Transport (..))
 import           UnliftIO
 
-data BSHandle = BSHandle Int (TVar ByteString)
+data BSHandle = BSHandle Int (TVar Bool) (TVar ByteString)
 
 newBSHandle :: MonadIO m => ByteString -> m BSHandle
 newBSHandle = newBSHandle_ 4096
 
 newBSHandle_ :: MonadIO m => Int -> ByteString -> m BSHandle
-newBSHandle_ size bs = BSHandle size <$> newTVarIO bs
+newBSHandle_ size bs = do
+  state <- newTVarIO True
+  BSHandle size state <$> newTVarIO bs
 
 feed :: MonadIO m => BSHandle -> ByteString -> m ()
-feed (BSHandle size h) bs = atomically $ do
-  bs0 <- readTVar h
-
-  when (B.length bs0 > size) retrySTM
-
-  writeTVar h $ bs0 <> bs
+feed (BSHandle size state h) bs = atomically $ do
+  st <- readTVar state
+  when st $ do
+    bs0 <- readTVar h
+    when (B.length bs0 > size) retrySTM
+    writeTVar h $ bs0 <> bs
 
 data BSTransport = BS
   { bsHandle :: TVar ByteString
@@ -40,8 +42,7 @@ data BSTransport = BS
 
 instance Transport BSTransport where
   data TransportConfig BSTransport = BSConfig BSHandle (ByteString -> IO ())
-  newTransport (BSConfig (BSHandle _ bsHandle) bsWriter) = do
-    bsState <- newTVarIO True
+  newTransport (BSConfig (BSHandle _ bsState bsHandle) bsWriter) =
     return BS {..}
   recvData BS {..} nbytes = atomically $ do
     bs <- readTVar bsHandle
