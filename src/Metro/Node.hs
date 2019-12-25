@@ -56,6 +56,7 @@ import           Metro.Session              (SessionEnv (sessionId), SessionT,
                                              feed, isTimeout, runSessionT)
 import qualified Metro.Session              as S (newSessionEnv, receive, send)
 import           Metro.Utils                (getEpochTime)
+import           System.Log.Logger          (errorM)
 import           UnliftIO
 import           UnliftIO.Concurrent        (threadDelay)
 
@@ -192,7 +193,9 @@ tryMainLoop
 tryMainLoop sessionHandler = do
   r <- tryAny $ mainLoop sessionHandler
   case r of
-    Left _  -> stopNodeT
+    Left e  -> do
+      liftIO $ errorM "Metro.Node" $ "MainLoop Error: " ++ show e
+      stopNodeT
     Right _ -> pure ()
 
 mainLoop
@@ -210,7 +213,9 @@ tryDoFeed
 tryDoFeed rpkt sessionHandler = do
   r <- tryAny $ doFeed rpkt sessionHandler
   case r of
-    Left _  -> stopNodeT
+    Left e  -> do
+      liftIO $ errorM "Metro.Node" $ "DoFeed Error: " ++ show e
+      stopNodeT
     Right _ -> pure ()
 
 doFeed
