@@ -19,7 +19,7 @@ import           UnliftIO
 data BSHandle = BSHandle Int (TVar Bool) (TVar ByteString)
 
 newBSHandle :: MonadIO m => ByteString -> m BSHandle
-newBSHandle = newBSHandle_ 4096
+newBSHandle = newBSHandle_ 41943040 -- 40M
 
 newBSHandle_ :: MonadIO m => Int -> ByteString -> m BSHandle
 newBSHandle_ size bs = do

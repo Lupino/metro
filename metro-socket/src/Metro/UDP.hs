@@ -42,7 +42,7 @@ instance Servable UDPServer where
     sock <- liftIO $ bindTo hostPort
     UDPServer sock <$> newIOHashMap
   servOnce us@(UDPServer serv handleList) = do
-    (bs, addr) <- liftIO $ recvFrom serv 1024
+    (bs, addr) <- liftIO $ recvFrom serv 4194304
 
     bsHandle <- HM.lookup handleList $ show addr
     case bsHandle of
