@@ -51,7 +51,7 @@ import           Metro.Node                 (NodeEnv1, NodeMode (..),
 import qualified Metro.Node                 as Node
 import           Metro.Session              (SessionT)
 import           Metro.Utils                (getEpochTime)
-import           System.Log.Logger          (infoM)
+import           System.Log.Logger          (errorM, infoM)
 import           UnliftIO
 import           UnliftIO.Concurrent        (threadDelay)
 
@@ -156,19 +156,37 @@ tryServeOnce
 tryServeOnce sess = tryAny (serveOnce sess)
 
 serveOnce
-  :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Hashable nid, Eq k, Hashable k, GetPacketId k rpkt, RecvPacket rpkt, Servable serv)
+  :: ( MonadUnliftIO m
+     , Transport tp
+     , Show nid, Eq nid, Hashable nid
+     , Eq k, Hashable k, GetPacketId k rpkt, RecvPacket rpkt
+     , Servable serv)
   => SessionT u nid k rpkt tp m ()
   -> ServerT serv u nid k rpkt tp m ()
 serveOnce sess = do
   ServerEnv {..} <- ask
-  r <- servOnce serveServ
-  case r of
-    Nothing -> return ()
-    Just (servID, stp) -> void . async $ do
-      connEnv <- initConnEnv $ mapTransport stp
-      mnid <- liftIO $ prepare servID connEnv
-      forM_ mnid $ \(nid, uEnv) ->
-        void $ handleConn "Client" servID connEnv nid uEnv sess
+  servOnce serveServ $ doServeOnce sess
+
+doServeOnce
+  :: ( MonadUnliftIO m
+     , Transport tp
+     , Show nid, Eq nid, Hashable nid
+     , Eq k, Hashable k, GetPacketId k rpkt, RecvPacket rpkt
+     , Servable serv)
+  => SessionT u nid k rpkt tp m ()
+  -> Maybe (SID serv, TransportConfig (STP serv))
+  -> ServerT serv u nid k rpkt tp m ()
+doServeOnce _ Nothing = return ()
+doServeOnce sess (Just (servID, stp)) = do
+  ServerEnv {..} <- ask
+  connEnv <- initConnEnv $ mapTransport stp
+  mnid <- liftIO $ prepare servID connEnv
+  forM_ mnid $ \(nid, uEnv) -> do
+    (_, io) <- handleConn "Client" servID connEnv nid uEnv sess
+    r <- waitCatch io
+    case r of
+      Left e  -> liftIO $ errorM "Metro.Server" $ "Handle connection error " ++ show e
+      Right _ -> return ()
 
 handleConn
   :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Hashable nid, Eq k, Hashable k, GetPacketId k rpkt, RecvPacket rpkt, Servable serv)
@@ -178,7 +196,7 @@ handleConn
   -> nid
   -> u
   -> SessionT u nid k rpkt tp m ()
-  -> ServerT serv u nid k rpkt tp m (NodeEnv1 u nid k rpkt tp)
+  -> ServerT serv u nid k rpkt tp m (NodeEnv1 u nid k rpkt tp, Async ())
 handleConn n servID connEnv nid uEnv sess = do
     ServerEnv {..} <- ask
 
@@ -195,13 +213,13 @@ handleConn n servID connEnv nid uEnv sess = do
 
     mapM_ (`runNodeT1` stopNodeT) env1
 
-    void $ async $ do
+    io <- async $ do
       onConnEnter serveServ servID
       lift . runNodeT1 env0 $ startNodeT sess
       onConnLeave serveServ servID
       liftIO $ infoM "Metro.Server" (serveName ++ n ++ ": " ++ show nid ++ " disconnected")
 
-    return env0
+    return (env0, io)
 
 startServer
   :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Hashable nid, Eq k, Hashable k, GetPacketId k rpkt, RecvPacket rpkt, Servable serv)

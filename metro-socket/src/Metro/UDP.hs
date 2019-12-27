@@ -10,7 +10,8 @@ module Metro.UDP
   , newClient
   ) where
 
-import           Data.ByteString           (ByteString, empty)
+import           Control.Monad             (void)
+import           Data.ByteString           (empty)
 import           Data.Hashable
 import           Metro.Class               (GetPacketId, RecvPacket,
                                             Servable (..), Transport,
@@ -24,8 +25,8 @@ import           Metro.Server              (ServerT, getServ, handleConn,
 import           Metro.Session             (SessionT)
 import           Metro.Socket              (bindTo, getDatagramAddr)
 import           Metro.Transport.BS        (BSHandle, BSTransport,
-                                            bsTransportConfig, feed,
-                                            newBSHandle)
+                                            bsTransportConfig, closeBSHandle,
+                                            feed, newBSHandle)
 import           Network.Socket            (SockAddr, Socket, addrAddress)
 import qualified Network.Socket            as Socket (close)
 import           Network.Socket.ByteString (recvFrom, sendAllTo)
@@ -41,15 +42,18 @@ instance Servable UDPServer where
   newServer (UDPConfig hostPort) = do
     sock <- liftIO $ bindTo hostPort
     UDPServer sock <$> newIOHashMap
-  servOnce us@(UDPServer serv handleList) = do
+  servOnce us@(UDPServer serv handleList) done = do
     (bs, addr) <- liftIO $ recvFrom serv 4194304
 
     bsHandle <- HM.lookup handleList $ show addr
     case bsHandle of
-      Just h  -> feed h bs >> return Nothing
+      Just h  -> feed h bs
       Nothing -> do
-        config <- newTransportConfig us addr bs
-        return $ Just (addr, config)
+        void . async $ do
+          h <- newBSHandle bs
+          config <- newTransportConfig us addr h
+          done $ Just (addr, config)
+          closeBSHandle h
 
   onConnEnter _ _ = return ()
   onConnLeave (UDPServer _ handleList) addr = HM.delete handleList (show addr)
@@ -62,10 +66,9 @@ newTransportConfig
   :: (MonadIO m)
   => UDPServer
   -> SockAddr
-  -> ByteString
+  -> BSHandle
   -> m (TransportConfig BSTransport)
-newTransportConfig (UDPServer sock handleList) addr bs = do
-  h <- newBSHandle bs
+newTransportConfig (UDPServer sock handleList) addr h = do
   HM.insert handleList (show addr) h
   return $ bsTransportConfig h $ flip (sendAllTo sock) addr
 
@@ -85,6 +88,7 @@ newClient mk hostPort nid uEnv sess = do
       return Nothing
     Just addr0 -> do
       us <- getServ <$> serverEnv
-      config <- mk <$> newTransportConfig us (addrAddress addr0) empty
+      h <- newBSHandle empty
+      config <- mk <$> newTransportConfig us (addrAddress addr0) h
       connEnv <- initConnEnv config
-      Just <$> handleConn "Server" (addrAddress addr0) connEnv nid uEnv sess
+      Just . fst <$> handleConn "Server" (addrAddress addr0) connEnv nid uEnv sess

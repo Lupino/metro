@@ -20,7 +20,7 @@ import           Control.Exception    (Exception)
 import           Data.Binary          (Binary, encode)
 import           Data.ByteString      (ByteString)
 import           Data.ByteString.Lazy (toStrict)
-import           UnliftIO             (MonadIO)
+import           UnliftIO             (MonadIO, MonadUnliftIO)
 
 data TransportError = TransportClosed
   deriving (Show, Eq, Ord)
@@ -38,8 +38,8 @@ class Servable serv where
   data ServerConfig serv
   type SID serv
   type STP serv
-  newServer    :: MonadIO m => ServerConfig serv -> m serv
-  servOnce    :: MonadIO m => serv -> m (Maybe (SID serv, TransportConfig (STP serv)))
+  newServer   :: MonadIO m => ServerConfig serv -> m serv
+  servOnce    :: MonadUnliftIO m => serv -> (Maybe (SID serv, TransportConfig (STP serv)) -> m ()) -> m ()
   onConnEnter :: MonadIO m => serv -> SID serv -> m ()
   onConnLeave :: MonadIO m => serv -> SID serv -> m ()
   servClose   :: MonadIO m => serv -> m ()

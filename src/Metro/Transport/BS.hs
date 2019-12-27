@@ -7,6 +7,7 @@ module Metro.Transport.BS
   , newBSHandle
   , newBSHandle_
   , feed
+  , closeBSHandle
   , bsTransportConfig
   ) where
 
@@ -33,6 +34,9 @@ feed (BSHandle size state h) bs = atomically $ do
     bs0 <- readTVar h
     when (B.length bs0 > size) retrySTM
     writeTVar h $ bs0 <> bs
+
+closeBSHandle :: MonadIO m => BSHandle -> m ()
+closeBSHandle (BSHandle _ state _) = atomically $ writeTVar state False
 
 data BSTransport = BS
   { bsHandle :: TVar ByteString

@@ -9,13 +9,14 @@ module Metro.TCP
   , tcpConfig
   ) where
 
+import           Control.Monad          (void)
 import           Metro.Class            (Servable (..))
 import           Metro.Socket           (listen)
 import qualified Metro.Transport.Socket as T (Socket, rawSocket)
 import           Network.Socket         (Socket, SocketOption (KeepAlive),
                                          accept, setSocketOption)
 import qualified Network.Socket         as Socket (close)
-import           UnliftIO               (liftIO)
+import           UnliftIO               (async, liftIO)
 
 newtype TCPServer = TCPServer Socket
 
@@ -24,10 +25,12 @@ instance Servable TCPServer where
   type SID TCPServer = Socket
   type STP TCPServer = T.Socket
   newServer (TCPConfig hostPort) = liftIO $ TCPServer <$> listen hostPort
-  servOnce (TCPServer serv) = do
+  servOnce (TCPServer serv) done = do
     (sock, _) <- liftIO $ accept serv
     liftIO $ setSocketOption sock KeepAlive 1
-    return$ Just (sock, T.rawSocket sock)
+    void $ async $ do
+      done $ Just (sock, T.rawSocket sock)
+      liftIO $ Socket.close sock
   onConnEnter _ _ = return ()
   onConnLeave _ _ = return ()
   servClose (TCPServer serv) = liftIO $ Socket.close serv
