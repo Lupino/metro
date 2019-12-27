@@ -216,9 +216,7 @@ tryDoFeed
 tryDoFeed rpkt sessionHandler = do
   r <- tryAny $ doFeed rpkt sessionHandler
   case r of
-    Left e  -> do
-      liftIO $ errorM "Metro.Node" $ "DoFeed Error: " ++ show e
-      stopNodeT
+    Left e  -> liftIO $ errorM "Metro.Node" $ "DoFeed Error: " ++ show e
     Right _ -> pure ()
 
 doFeed
