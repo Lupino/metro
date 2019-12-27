@@ -34,6 +34,9 @@ module Metro.Node
 
   , getTimer
   , getNodeId
+
+  , getSessionSize
+  , getSessionSize1
   ) where
 
 import           Control.Monad              (forM, forever, mzero, void, when)
@@ -51,7 +54,7 @@ import           Metro.Conn                 (ConnEnv, ConnT, FromConn (..),
                                              close, receive, runConnT)
 import           Metro.IOHashMap            (IOHashMap, newIOHashMap)
 import qualified Metro.IOHashMap            as HM (delete, elems, insert,
-                                                   lookup)
+                                                   lookup, size)
 import           Metro.Session              (SessionEnv (sessionId), SessionT,
                                              feed, isTimeout, runSessionT)
 import qualified Metro.Session              as S (newSessionEnv, receive, send)
@@ -321,3 +324,9 @@ runCheckSessionState = do
             when to $ do
               feed Nothing
               HM.delete sessList (sessionId sessEnv)
+
+getSessionSize :: MonadIO m => NodeEnv u nid k rpkt -> m Int
+getSessionSize NodeEnv {..} = HM.size sessionList
+
+getSessionSize1 :: MonadIO m => NodeEnv1 u nid k rpkt tp -> m Int
+getSessionSize1 NodeEnv1 {..} = getSessionSize nodeEnv
