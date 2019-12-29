@@ -12,7 +12,7 @@ module Metro.Socket
 
 import           Control.Exception (bracketOnError, throwIO)
 import           Control.Monad     (when)
-import           Data.List         (isPrefixOf)
+import           Data.List         (isPrefixOf, reverse)
 import           Data.Maybe        (listToMaybe)
 import           Network.Socket    hiding (bind, connect, listen)
 import qualified Network.Socket    as S (bind, connect, listen)
@@ -152,6 +152,27 @@ bindTo hostPort = do
         )
 
 
+-- ipv6 fe80::1046:372a:8c3b:94b8%en0:80
+
+countColon :: String -> Int
+countColon = length . filter (==':')
+
+-- ipv6 fe80::1046:372a:8c3b:94b8%en0:80
+-- ipv6 fe80::1046:372a:8c3b:94b8%en0
+-- ipv4 127.0.0.1:80
+-- ipv4 127.0.0.1
+-- only port :80
+splitHostPort :: String -> (Maybe String, Maybe String)
+splitHostPort hostPort
+  | colon == 0 = (Just hostPort, Nothing)
+  | colon == 1 = (takeFst id hostPort, takeSnd id hostPort)
+  | colon == 5 = (Just hostPort, Nothing)
+  | colon == 6 = (takeSnd reverse hostPort, takeFst reverse hostPort )
+  | otherwise = (Nothing, Nothing)
+  where colon = countColon hostPort
+        takeFst f = toMaybe . f . takeWhile (/=':') . f
+        takeSnd f = toMaybe . f . drop 1 . dropWhile (/=':') . f
+
 dropS :: String -> String
 dropS = drop 3 . dropWhile (/= ':')
 
@@ -160,7 +181,7 @@ toMaybe [] = Nothing
 toMaybe xs = Just xs
 
 getHost :: String -> Maybe String
-getHost = toMaybe . takeWhile (/=':') . dropS
+getHost = fst . splitHostPort . dropS
 
 getService :: String -> Maybe String
-getService = toMaybe . drop 1 . dropWhile (/=':') . dropS
+getService = snd . splitHostPort . dropS
