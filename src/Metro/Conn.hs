@@ -96,7 +96,7 @@ recv' ConnEnv{..} nbytes = do
   where readBuf :: Int -> IO ByteString
         readBuf 0  = return B.empty
         readBuf nb = do
-          buf <- recvData transport 4194304 -- 4M
+          buf <- recvData transport $ max 4096 nb -- 4k
           when (B.null buf) $ throwIO TransportClosed
           if B.length buf >= nb then return buf
                                 else do
