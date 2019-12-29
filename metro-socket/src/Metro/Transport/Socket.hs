@@ -1,30 +1,38 @@
 {-# LANGUAGE TypeFamilies #-}
 module Metro.Transport.Socket
   ( Socket
-  , rawSocket
-  , socketUri
+  , socket
+  , mapTCPSocket
+  , mapUDPSocket
   ) where
 
+import           Data.List                 (isPrefixOf)
 import           Metro.Class               (Transport (..))
-import           Metro.Socket              (connect)
-import           Network.Socket            (close)
-import qualified Network.Socket            as S (Socket)
-import           Network.Socket.ByteString (recv, sendAll)
+import           Metro.Transport.TCPSocket
+import           Metro.Transport.UDPSocket
 
-newtype Socket = Socket S.Socket
+data Socket = TCP TCPSocket | UDP UDPSocket
 
 instance Transport Socket where
   data TransportConfig Socket =
-      RawSocket S.Socket
-    | SocketUri String
-  newTransport (RawSocket soc) = pure $ Socket soc
-  newTransport (SocketUri h)   = Socket <$> connect h
-  recvData (Socket soc) = recv soc
-  sendData (Socket soc) = sendAll soc
-  closeTransport (Socket soc) = close soc
+    TCPTC (TransportConfig TCPSocket)
+    | UDPTC (TransportConfig UDPSocket)
+  newTransport (TCPTC c) = TCP <$> newTransport c
+  newTransport (UDPTC c) = UDP <$> newTransport c
+  recvData (TCP tp) = recvData tp
+  recvData (UDP tp) = recvData tp
+  sendData (TCP tp) = sendData tp
+  sendData (UDP tp) = sendData tp
+  closeTransport (TCP tp) = closeTransport tp
+  closeTransport (UDP tp) = closeTransport tp
 
-rawSocket :: S.Socket -> TransportConfig Socket
-rawSocket = RawSocket
+socket :: String -> TransportConfig Socket
+socket hostPort = do
+  if "udp" `isPrefixOf` hostPort then UDPTC $ udpSocket hostPort
+                                 else TCPTC $ tcpSocket hostPort
 
-socketUri :: String -> TransportConfig Socket
-socketUri = SocketUri
+mapTCPSocket :: TransportConfig TCPSocket -> TransportConfig Socket
+mapTCPSocket = TCPTC
+
+mapUDPSocket :: TransportConfig UDPSocket -> TransportConfig Socket
+mapUDPSocket = UDPTC

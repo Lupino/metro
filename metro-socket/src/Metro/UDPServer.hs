@@ -4,9 +4,9 @@
 {-# LANGUAGE TypeFamilies          #-}
 {-# LANGUAGE UndecidableInstances  #-}
 
-module Metro.UDP
+module Metro.UDPServer
   ( UDPServer
-  , udpConfig
+  , udpServer
   , newClient
   ) where
 
@@ -24,9 +24,9 @@ import           Metro.Server              (ServerT, getServ, handleConn,
                                             serverEnv)
 import           Metro.Session             (SessionT)
 import           Metro.Socket              (bindTo, getDatagramAddr)
-import           Metro.Transport.BS        (BSHandle, BSTransport,
-                                            bsTransportConfig, closeBSHandle,
-                                            feed, newBSHandle)
+import           Metro.Transport.BS        (BSHandle, bsTransportConfig,
+                                            closeBSHandle, feed, newBSHandle)
+import           Metro.Transport.UDPSocket (UDPSocket, udpSocket_)
 import           Network.Socket            (SockAddr, Socket, addrAddress)
 import qualified Network.Socket            as Socket (close)
 import           Network.Socket.ByteString (recvFrom, sendAllTo)
@@ -38,7 +38,7 @@ data UDPServer = UDPServer Socket (IOHashMap String BSHandle)
 instance Servable UDPServer where
   data ServerConfig UDPServer = UDPConfig String
   type SID UDPServer = SockAddr
-  type STP UDPServer = BSTransport
+  type STP UDPServer = UDPSocket
   newServer (UDPConfig hostPort) = do
     sock <- liftIO $ bindTo hostPort
     UDPServer sock <$> newIOHashMap
@@ -59,22 +59,22 @@ instance Servable UDPServer where
   onConnLeave (UDPServer _ handleList) addr = HM.delete handleList (show addr)
   servClose (UDPServer serv _) = liftIO $ Socket.close serv
 
-udpConfig :: String -> ServerConfig UDPServer
-udpConfig = UDPConfig
+udpServer :: String -> ServerConfig UDPServer
+udpServer = UDPConfig
 
 newTransportConfig
   :: (MonadIO m)
   => UDPServer
   -> SockAddr
   -> BSHandle
-  -> m (TransportConfig BSTransport)
+  -> m (TransportConfig UDPSocket)
 newTransportConfig (UDPServer sock handleList) addr h = do
   HM.insert handleList (show addr) h
-  return $ bsTransportConfig h $ flip (sendAllTo sock) addr
+  return $ udpSocket_ $ bsTransportConfig h $ flip (sendAllTo sock) addr
 
 newClient
   :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Hashable nid, Eq k, Hashable k, GetPacketId k rpkt, RecvPacket rpkt)
-  => (TransportConfig BSTransport -> TransportConfig tp)
+  => (TransportConfig UDPSocket -> TransportConfig tp)
   -> String
   -> nid
   -> u

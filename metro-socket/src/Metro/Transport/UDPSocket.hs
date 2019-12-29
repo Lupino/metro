@@ -2,6 +2,7 @@
 module Metro.Transport.UDPSocket
   ( UDPSocket
   , udpSocket
+  , udpSocket_
   ) where
 
 import           Control.Monad             (forever)
@@ -15,10 +16,13 @@ import           Network.Socket.ByteString (recvFrom, sendAllTo)
 import           System.Log.Logger         (errorM)
 import           UnliftIO                  (Async, async, cancel)
 
-data UDPSocket = UDPSocket (Async ()) BSTransport
+data UDPSocket = UDPSocket (Maybe (Async ())) BSTransport
 
 instance Transport UDPSocket where
-  data TransportConfig UDPSocket = SocketUri String
+  data TransportConfig UDPSocket =
+    RawSocket (TransportConfig BSTransport)
+    | SocketUri String
+  newTransport (RawSocket h)   = UDPSocket Nothing <$> newTransport h
   newTransport (SocketUri h)   = do
     addrInfo <- getDatagramAddr h
     case addrInfo of
@@ -29,16 +33,19 @@ instance Transport UDPSocket where
         sock <- bindTo "udp://0.0.0.0:0"
 
         io <- async $ forever $ do
-          (bs, addr1) <- recvFrom sock 1024
+          (bs, addr1) <- recvFrom sock 4194304
           if addr0 == addr1 then feed bsHandle bs
           else errorM "Metro.UDP" $ "Receive unkonw address " ++ show addr1
 
         tp <- newTransport $ bsTransportConfig bsHandle $ flip (sendAllTo sock) addr0
-        return $ UDPSocket io tp
+        return $ UDPSocket (Just io) tp
 
   recvData (UDPSocket _ soc) = recvData soc
   sendData (UDPSocket _ soc) = sendData soc
-  closeTransport (UDPSocket io soc) = cancel io >> closeTransport soc
+  closeTransport (UDPSocket io soc) = mapM_ cancel io >> closeTransport soc
 
 udpSocket :: String -> TransportConfig UDPSocket
 udpSocket = SocketUri
+
+udpSocket_ :: TransportConfig BSTransport -> TransportConfig UDPSocket
+udpSocket_ = RawSocket
