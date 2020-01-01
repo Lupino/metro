@@ -1,15 +1,15 @@
 {-# LANGUAGE TypeFamilies #-}
-module Metro.Transport.Socket
+module Metro.TP.Socket
   ( Socket
   , socket
   , mapTCPSocket
   , mapUDPSocket
   ) where
 
-import           Data.List                 (isPrefixOf)
-import           Metro.Class               (Transport (..))
-import           Metro.Transport.TCPSocket
-import           Metro.Transport.UDPSocket
+import           Data.List          (isPrefixOf)
+import           Metro.Class        (Transport (..))
+import           Metro.TP.TCPSocket
+import           Metro.TP.UDPSocket
 
 data Socket = TCP TCPSocket | UDP UDPSocket
 

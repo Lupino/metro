@@ -10,14 +10,13 @@ module Metro.SocketServer
   , SSSID (..)
   ) where
 
-import           Data.List              (isPrefixOf)
-import           Metro.Class            (Servable (..), Transport (..),
-                                         TransportConfig)
+import           Data.List       (isPrefixOf)
+import           Metro.Class     (Servable (..), Transport (..),
+                                  TransportConfig)
 import           Metro.TCPServer
-import qualified Metro.Transport.Socket as T (Socket, mapTCPSocket,
-                                              mapUDPSocket)
+import qualified Metro.TP.Socket as T (Socket, mapTCPSocket, mapUDPSocket)
 import           Metro.UDPServer
-import           Network.Socket         (SockAddr, Socket)
+import           Network.Socket  (SockAddr, Socket)
 
 data SocketServer = TCP TCPServer | UDP UDPServer
 

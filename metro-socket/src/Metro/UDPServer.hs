@@ -24,9 +24,9 @@ import           Metro.Server              (ServerT, getServ, handleConn,
                                             serverEnv)
 import           Metro.Session             (SessionT)
 import           Metro.Socket              (bindTo, getDatagramAddr)
-import           Metro.Transport.BS        (BSHandle, bsTransportConfig,
+import           Metro.TP.BS               (BSHandle, bsTransportConfig,
                                             closeBSHandle, feed, newBSHandle)
-import           Metro.Transport.UDPSocket (UDPSocket, udpSocket_)
+import           Metro.TP.UDPSocket        (UDPSocket, udpSocket_)
 import           Network.Socket            (SockAddr, Socket, addrAddress)
 import qualified Network.Socket            as Socket (close)
 import           Network.Socket.ByteString (recvFrom, sendAllTo)

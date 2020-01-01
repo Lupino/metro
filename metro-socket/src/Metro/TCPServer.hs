@@ -9,14 +9,14 @@ module Metro.TCPServer
   , tcpServer
   ) where
 
-import           Control.Monad             (void)
-import           Metro.Class               (Servable (..))
-import           Metro.Socket              (listen)
-import           Metro.Transport.TCPSocket (TCPSocket, tcpSocket_)
-import           Network.Socket            (Socket, SocketOption (KeepAlive),
-                                            accept, setSocketOption)
-import qualified Network.Socket            as Socket (close)
-import           UnliftIO                  (async, liftIO)
+import           Control.Monad      (void)
+import           Metro.Class        (Servable (..))
+import           Metro.Socket       (listen)
+import           Metro.TP.TCPSocket (TCPSocket, tcpSocket_)
+import           Network.Socket     (Socket, SocketOption (KeepAlive), accept,
+                                     setSocketOption)
+import qualified Network.Socket     as Socket (close)
+import           UnliftIO           (async, liftIO)
 
 newtype TCPServer = TCPServer Socket
 

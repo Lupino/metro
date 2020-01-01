@@ -9,36 +9,34 @@ module Metro.Example
   , startMetroClient
   ) where
 
-import           Control.Monad          (forever, void)
-import           Data.Aeson             (FromJSON, parseJSON, withObject, (.!=),
-                                         (.:), (.:?))
-import           Data.ByteString        (ByteString)
-import           Data.Default.Class     (def)
-import           Data.Word              (Word16)
-import           Metro                  (NodeMode (..), SessionMode (..),
-                                         request, withSessionT)
-import           Metro.Class            (Servable (STP),
-                                         Transport (TransportConfig))
-import qualified Metro.Class            as S (Servable (ServerConfig))
-import           Metro.Conn             (close, initConnEnv, receive, runConnT)
-import           Metro.Example.Device   (DeviceEnv, initDeviceEnv, runDeviceT,
-                                         sessionGen, sessionHandler,
-                                         startDeviceT)
-import           Metro.Example.Types    (Command (..), Packet (..))
-import           Metro.Example.Web      (startWeb)
-import           Metro.Server           (ServerEnv, getNodeEnvList,
-                                         initServerEnv,
-                                         setDefaultSessionTimeout, setKeepalive,
-                                         setNodeMode, setServerName,
-                                         setSessionMode, startServer)
-import           Metro.Session          (send)
-import           Metro.SocketServer     (socketServer)
-import           Metro.Transport.Debug  (DebugMode (..), debugConfig)
-import           Metro.Transport.Socket (socket)
-import           Metro.Utils            (setupLog)
-import           System.Log             (Priority (..))
-import           UnliftIO               (liftIO)
-import           UnliftIO.Concurrent    (forkIO, threadDelay)
+import           Control.Monad        (forever, void)
+import           Data.Aeson           (FromJSON, parseJSON, withObject, (.!=),
+                                       (.:), (.:?))
+import           Data.ByteString      (ByteString)
+import           Data.Default.Class   (def)
+import           Data.Word            (Word16)
+import           Metro                (NodeMode (..), SessionMode (..), request,
+                                       withSessionT)
+import           Metro.Class          (Servable (STP),
+                                       Transport (TransportConfig))
+import qualified Metro.Class          as S (Servable (ServerConfig))
+import           Metro.Conn           (close, initConnEnv, receive, runConnT)
+import           Metro.Example.Device (DeviceEnv, initDeviceEnv, runDeviceT,
+                                       sessionGen, sessionHandler, startDeviceT)
+import           Metro.Example.Types  (Command (..), Packet (..))
+import           Metro.Example.Web    (startWeb)
+import           Metro.Server         (ServerEnv, getNodeEnvList, initServerEnv,
+                                       setDefaultSessionTimeout, setKeepalive,
+                                       setNodeMode, setServerName,
+                                       setSessionMode, startServer)
+import           Metro.Session        (send)
+import           Metro.SocketServer   (socketServer)
+import           Metro.TP.Debug       (DebugMode (..), debugConfig)
+import           Metro.TP.Socket      (socket)
+import           Metro.Utils          (setupLog)
+import           System.Log           (Priority (..))
+import           UnliftIO             (liftIO)
+import           UnliftIO.Concurrent  (forkIO, threadDelay)
 
 data ServerConfig = ServerConfig
   { webHost   :: String

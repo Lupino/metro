@@ -1,7 +1,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TypeFamilies    #-}
 
-module Metro.Transport.BS
+module Metro.TP.BS
   ( BSTransport
   , BSHandle
   , newBSHandle

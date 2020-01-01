@@ -1,5 +1,5 @@
 {-# LANGUAGE TypeFamilies #-}
-module Metro.Transport.TCPSocket
+module Metro.TP.TCPSocket
   ( TCPSocket
   , tcpSocket
   , tcpSocket_

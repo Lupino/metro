@@ -1,6 +1,6 @@
 {-# LANGUAGE TypeFamilies #-}
 
-module Metro.Transport.Debug
+module Metro.TP.Debug
   ( Debug
   , DebugMode (..)
   , debugConfig

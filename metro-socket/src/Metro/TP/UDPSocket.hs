@@ -1,5 +1,5 @@
 {-# LANGUAGE TypeFamilies #-}
-module Metro.Transport.UDPSocket
+module Metro.TP.UDPSocket
   ( UDPSocket
   , udpSocket
   , udpSocket_
@@ -9,7 +9,7 @@ import           Control.Monad             (forever)
 import           Data.ByteString           (empty)
 import           Metro.Class               (Transport (..))
 import           Metro.Socket              (bindTo, getDatagramAddr)
-import           Metro.Transport.BS        (BSTransport, bsTransportConfig,
+import           Metro.TP.BS               (BSTransport, bsTransportConfig,
                                             feed, newBSHandle)
 import           Network.Socket            (addrAddress)
 import           Network.Socket.ByteString (recvFrom, sendAllTo)
