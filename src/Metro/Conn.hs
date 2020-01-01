@@ -18,15 +18,14 @@ module Metro.Conn
   , statusTVar
   ) where
 
-import           Control.Monad              (when)
 import           Control.Monad.Reader.Class (MonadReader (ask))
 import           Control.Monad.Trans.Class  (MonadTrans, lift)
 import           Control.Monad.Trans.Reader (ReaderT (..), runReaderT)
 import           Data.ByteString            (ByteString)
-import qualified Data.ByteString            as B (concat, drop, empty, length,
-                                                  null, take)
+import qualified Data.ByteString            as B (empty)
 import           Metro.Class
 import qualified Metro.Lock                 as L (Lock, new, with)
+import           Metro.Utils                (recvEnough)
 import           UnliftIO
 
 data ConnEnv tp = ConnEnv
@@ -77,31 +76,8 @@ initConnEnv config = do
 
 receive :: (MonadUnliftIO m, Transport tp, RecvPacket pkt) => ConnT tp m pkt
 receive = do
-  connEnv@ConnEnv{..} <- ask
-  L.with readLock $ lift $ recvPacket (recv' connEnv)
-
-recv' :: (MonadIO m, Transport tp) => ConnEnv tp -> Int -> m ByteString
-recv' ConnEnv{..} nbytes = do
-  buf <- atomically $ do
-    bf <- readTVar buffer
-    writeTVar buffer $! B.drop nbytes bf
-    return $! B.take nbytes bf
-  if B.length buf == nbytes then return buf
-                            else do
-                              otherBuf <- liftIO $ readBuf (nbytes - B.length buf)
-                              let out = B.concat [ buf, otherBuf ]
-                              atomically . writeTVar buffer $! B.drop nbytes out
-                              return $! B.take nbytes out
-
-  where readBuf :: Int -> IO ByteString
-        readBuf 0  = return B.empty
-        readBuf nb = do
-          buf <- recvData transport $ max 4096 nb -- 4k
-          when (B.null buf) $ throwIO TransportClosed
-          if B.length buf >= nb then return buf
-                                else do
-                                  otherBuf <- readBuf (nb - B.length buf)
-                                  return $! B.concat [ buf, otherBuf ]
+  ConnEnv{..} <- ask
+  L.with readLock $ lift $ recvPacket (recvEnough buffer transport)
 
 send :: (MonadUnliftIO m, Transport tp, SendPacket pkt) => pkt -> ConnT tp m ()
 send pkt = do
