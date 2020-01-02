@@ -1,6 +1,8 @@
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards   #-}
-{-# LANGUAGE TypeFamilies      #-}
+{-# LANGUAGE FlexibleContexts    #-}
+{-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE RecordWildCards     #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeFamilies        #-}
 
 module Metro.TP.Crypto
   ( Crypto
@@ -11,16 +13,23 @@ module Metro.TP.Crypto
   , methodCbc
   , methodCfb
   , methodCtr
+
+  , makeCrypto
   ) where
 
 import           Control.Monad        (when)
-import           Crypto.Cipher.Types  (BlockCipher (..), IV (..), ivAdd, nullIV)
+import           Crypto.Cipher.Types  (BlockCipher (..), Cipher (..), IV (..),
+                                       ivAdd, nullIV)
+import           Crypto.Error         (CryptoFailable (..))
 import           Data.Binary          (Binary (..), decode, encode)
 import           Data.Binary.Get      (getByteString, getWord32be)
 import           Data.Binary.Put      (putByteString, putWord32be)
 import           Data.ByteString      (ByteString, empty)
 import qualified Data.ByteString      as B (length, take)
 import           Data.ByteString.Lazy (fromStrict, toStrict)
+import qualified Data.ByteString.Lazy as LB (cycle, fromStrict, take, toStrict)
+import qualified Data.Text            as T (pack)
+import           Data.Text.Encoding   (encodeUtf8)
 import           Metro.Class          (Transport (..))
 import           Metro.Utils          (recvEnough)
 import           UnliftIO
@@ -148,3 +157,35 @@ methodCfb = CryptoMethod cfbEncrypt cfbDecrypt  True
 
 methodCtr :: BlockCipher cipher => CryptoMethod cipher
 methodCtr = CryptoMethod ctrCombine ctrCombine True
+
+getCryptoMethod :: BlockCipher cipher => cipher -> String -> Maybe (CryptoMethod cipher)
+getCryptoMethod _ "CBC" = Just methodCbc
+getCryptoMethod _ "cbc" = Just methodCbc
+getCryptoMethod _ "CFB" = Just methodCfb
+getCryptoMethod _ "cfb" = Just methodCfb
+getCryptoMethod _ "ECB" = Just methodEcb
+getCryptoMethod _ "ecb" = Just methodEcb
+getCryptoMethod _ "CTR" = Just methodCtr
+getCryptoMethod _ "ctr" = Just methodCtr
+getCryptoMethod _ _     = Nothing
+
+makeCrypto
+  :: forall cipher tp. (BlockCipher cipher, Cipher cipher)
+  => cipher -> String -> String -> TransportConfig tp -> TransportConfig (Crypto cipher tp)
+makeCrypto cipher method key c =
+  case getCryptoMethod cipher method of
+    Nothing -> error "crypto method not support"
+    Just m  ->
+      case cipherInit key0 of
+        CryptoFailed e         -> error $ "Cipher init failed " ++ show e
+        CryptoPassed (newCipher :: cipher) ->
+          crypto m newCipher c
+
+  where size = blockSize cipher
+        key0 =
+          LB.toStrict
+          . LB.take (fromIntegral size)
+          . LB.cycle
+          . LB.fromStrict
+          . encodeUtf8
+          $ T.pack key
