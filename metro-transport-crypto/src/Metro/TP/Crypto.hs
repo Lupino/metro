@@ -13,7 +13,7 @@ import           Data.Binary          (Binary (..), decode, encode)
 import           Data.Binary.Get      (getByteString, getWord32be)
 import           Data.Binary.Put      (putByteString, putWord32be)
 import           Data.ByteString      (ByteString, empty)
-import qualified Data.ByteString      as B (drop, length, take)
+import qualified Data.ByteString      as B (length, take)
 import           Data.ByteString.Lazy (fromStrict, toStrict)
 import           Metro.Class          (Transport (..))
 import           Metro.Utils          (recvEnough)
@@ -27,8 +27,8 @@ instance Binary BlockLength where
   put (BlockLength l) = putWord32be $ fromIntegral l
 
 data Block = Block
-  { msgSize :: Int
-  , encData :: ByteString
+  { msgSize :: !Int
+  , encData :: !ByteString
   }
   deriving (Show, Eq)
 
@@ -43,14 +43,13 @@ instance Binary Block where
     putWord32be $ fromIntegral msgSize
     putByteString encData
 
-
-fixedLength :: Int -> ByteString -> ByteString
-fixedLength m bs | B.length bs < m = fixedLength m $ "0" <> bs
-                 | B.length bs > m = fixedLength m $ B.drop 1 bs
-                 | otherwise = bs
+fixedLengthR :: Int -> ByteString -> ByteString
+fixedLengthR m bs | B.length bs < m = fixedLengthR m $ bs <> "0"
+                  | B.length bs > m = fixedLengthR m $ B.take (B.length bs - 1) bs
+                  | otherwise = bs
 
 makeBlock :: Int -> ByteString -> Block
-makeBlock bSize msg = Block size $ fixedLength fixedSize msg
+makeBlock bSize msg = Block size $ fixedLengthR fixedSize msg
   where size = B.length msg
         fixedSize = (ceiling (fromIntegral size / fromIntegral bSize * 1.0)) * bSize
 
@@ -75,9 +74,12 @@ instance (Transport tp, BlockCipher cipher) => Transport (Crypto cipher tp) wher
   recvData (Crypto buf method cipher tp) _ = do
     hbs <- recvEnough buf tp 4
     case decode (fromStrict hbs) of
-      BlockLength len -> do
-        bs <- recvEnough buf tp len
-        return . getMsg . prepareBlock (decrypt method) cipher . decode . fromStrict $ hbs <> bs
+      BlockLength len ->
+        getMsg
+          . prepareBlock (decrypt method) cipher
+          . decode
+          . fromStrict
+          . (hbs <>) <$> recvEnough buf tp len
   sendData (Crypto _ method cipher tp) =
     sendData tp
       . toStrict
