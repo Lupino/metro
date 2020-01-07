@@ -19,7 +19,7 @@ module Metro.TP.Crypto
 
 import           Control.Monad        (when)
 import           Crypto.Cipher.Types  (BlockCipher (..), Cipher (..), IV (..),
-                                       ivAdd, nullIV)
+                                       KeySizeSpecifier (..), ivAdd, nullIV)
 import           Crypto.Error         (CryptoFailable (..))
 import           Data.Binary          (Binary (..), decode, encode)
 import           Data.Binary.Get      (getByteString, getWord32be)
@@ -181,7 +181,7 @@ makeCrypto cipher method key c =
         CryptoPassed (newCipher :: cipher) ->
           crypto m newCipher c
 
-  where size = blockSize cipher
+  where size = getKeySize $ cipherKeySize cipher
         key0 =
           LB.toStrict
           . LB.take (fromIntegral size)
@@ -189,3 +189,9 @@ makeCrypto cipher method key c =
           . LB.fromStrict
           . encodeUtf8
           $ T.pack key
+
+
+getKeySize :: KeySizeSpecifier -> Int
+getKeySize (KeySizeRange _ x) = x
+getKeySize (KeySizeEnum xs)   = maximum xs
+getKeySize (KeySizeFixed x)   = x
