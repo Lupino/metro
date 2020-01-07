@@ -133,6 +133,7 @@ crypto
   -> TransportConfig tp
   -> TransportConfig (Crypto cipher tp)
 crypto method cipher = crypto_ method cipher nullIV
+
 crypto_
   :: BlockCipher cipher
   => CryptoMethod cipher
