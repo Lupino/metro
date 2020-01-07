@@ -9,6 +9,8 @@ module Metro.TP.BS
   , feed
   , closeBSHandle
   , bsTransportConfig
+
+  , makePipe
   ) where
 
 import           Control.Monad   (when)
@@ -64,3 +66,10 @@ instance Transport BSTransport where
 
 bsTransportConfig :: BSHandle -> (ByteString -> IO ()) -> TransportConfig BSTransport
 bsTransportConfig = BSConfig
+
+makePipe :: MonadIO m => m (TransportConfig BSTransport, TransportConfig BSTransport)
+makePipe = do
+  rHandle <- newBSHandle empty
+  wHandle <- newBSHandle empty
+
+  return (bsTransportConfig rHandle (feed wHandle), bsTransportConfig wHandle (feed rHandle))

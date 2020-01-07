@@ -31,3 +31,19 @@ library:
   - unliftio
   - cryptonite
   - text
+
+tests:
+  metro-transport-crypto-test:
+    main:                Spec.hs
+    source-dirs:         test
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - metro-transport-crypto
+    - metro
+    - QuickCheck
+    - quickcheck-instances
+    - cryptonite
+    - bytestring
