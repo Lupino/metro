@@ -25,7 +25,7 @@ import           Data.Binary          (Binary (..), decode, encode)
 import           Data.Binary.Get      (getByteString, getWord32be)
 import           Data.Binary.Put      (putByteString, putWord32be)
 import           Data.ByteString      (ByteString, empty)
-import qualified Data.ByteString      as B (length, take)
+import qualified Data.ByteString      as B (append, length, replicate, take)
 import           Data.ByteString.Lazy (fromStrict, toStrict)
 import qualified Data.ByteString.Lazy as LB (cycle, fromStrict, take, toStrict)
 import qualified Data.Text            as T (pack)
@@ -58,15 +58,12 @@ instance Binary Block where
     putWord32be $ fromIntegral msgSize
     putByteString encData
 
-fixedLengthR :: Int -> ByteString -> ByteString
-fixedLengthR m bs | B.length bs < m = fixedLengthR m $ bs <> "0"
-                  | B.length bs > m = fixedLengthR m $ B.take (B.length bs - 1) bs
-                  | otherwise = bs
-
 makeBlock :: Int -> ByteString -> Block
-makeBlock bSize msg = Block size $ fixedLengthR fixedSize msg
+makeBlock bSize msg = Block size msg0
   where size = B.length msg
         fixedSize = (ceiling (fromIntegral size / fromIntegral bSize * 1.0)) * bSize
+        msg0 = if size < fixedSize then msg `B.append` B.replicate (fixedSize - size) 0
+                                   else msg
 
 getMsg :: Block -> ByteString
 getMsg Block {..} = B.take msgSize encData
