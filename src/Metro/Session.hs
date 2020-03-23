@@ -155,7 +155,8 @@ isTimeout = do
   t <- getTimer
   tout <- asks sessionTimeout
   now <- getEpochTime
-  return $ (t + tout) < now
+  if tout > 0 then return $ (t + tout) < now
+              else return False
 
 getSessionEnv1 :: (Monad m, Transport tp) => SessionT u nid k rpkt tp m (SessionEnv1 u nid k rpkt tp)
 getSessionEnv1 = do
