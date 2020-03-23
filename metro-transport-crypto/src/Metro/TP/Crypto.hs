@@ -42,10 +42,10 @@ instance Binary BlockLength where
   put (BlockLength l) = putWord32be $ fromIntegral l
 
 data Block = Block
-  { msgSize :: !Int
-  , encData :: !ByteString
-  }
-  deriving (Show, Eq)
+    { msgSize :: !Int
+    , encData :: !ByteString
+    }
+    deriving (Show, Eq)
 
 instance Binary Block where
   get = do
@@ -61,7 +61,7 @@ instance Binary Block where
 makeBlock :: Int -> ByteString -> Block
 makeBlock bSize msg = Block size msg0
   where size = B.length msg
-        fixedSize = (ceiling (fromIntegral size / fromIntegral bSize * 1.0)) * bSize
+        fixedSize = ceiling (fromIntegral size / fromIntegral bSize * 1.0) * bSize
         msg0 = if size < fixedSize then msg `B.append` B.replicate (fixedSize - size) 0
                                    else msg
 
@@ -75,19 +75,19 @@ prepareBlock
 prepareBlock f c iv b = b { encData = f c iv (encData b) }
 
 data CryptoMethod cipher = CryptoMethod
-  { encrypt :: cipher -> IV cipher -> ByteString -> ByteString
-  , decrypt :: cipher -> IV cipher -> ByteString -> ByteString
-  , needIV  :: Bool
-  }
+    { encrypt :: cipher -> IV cipher -> ByteString -> ByteString
+    , decrypt :: cipher -> IV cipher -> ByteString -> ByteString
+    , needIV  :: Bool
+    }
 
 data Crypto cipher tp = Crypto
-  { readBuffer   :: TVar ByteString
-  , cryptoMethod :: CryptoMethod cipher
-  , readIV       :: TVar (IV cipher)
-  , writeIV      :: TVar (IV cipher)
-  , cipher       :: cipher
-  , tp           :: tp
-  }
+    { readBuffer   :: TVar ByteString
+    , cryptoMethod :: CryptoMethod cipher
+    , readIV       :: TVar (IV cipher)
+    , writeIV      :: TVar (IV cipher)
+    , cipher       :: cipher
+    , tp           :: tp
+    }
 
 instance (Transport tp, BlockCipher cipher) => Transport (Crypto cipher tp) where
   data TransportConfig (Crypto cipher tp) =

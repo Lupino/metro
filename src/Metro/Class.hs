@@ -23,7 +23,7 @@ import           Data.ByteString.Lazy (toStrict)
 import           UnliftIO             (MonadIO, MonadUnliftIO)
 
 data TransportError = TransportClosed
-  deriving (Show, Eq, Ord)
+    deriving (Show, Eq, Ord)
 
 instance Exception TransportError
 

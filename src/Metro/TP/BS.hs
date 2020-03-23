@@ -41,10 +41,10 @@ closeBSHandle :: MonadIO m => BSHandle -> m ()
 closeBSHandle (BSHandle _ state _) = atomically $ writeTVar state False
 
 data BSTransport = BS
-  { bsHandle :: TVar ByteString
-  , bsWriter :: ByteString -> IO ()
-  , bsState  :: TVar Bool
-  }
+    { bsHandle :: TVar ByteString
+    , bsWriter :: ByteString -> IO ()
+    , bsState  :: TVar Bool
+    }
 
 instance Transport BSTransport where
   data TransportConfig BSTransport = BSConfig BSHandle (ByteString -> IO ())

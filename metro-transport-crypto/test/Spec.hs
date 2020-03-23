@@ -1,4 +1,4 @@
-import           Control.Monad                        (when)
+import           Control.Monad                        (unless)
 import           Crypto.Cipher.AES
 import           Crypto.Cipher.Blowfish
 import           Crypto.Cipher.Camellia
@@ -36,14 +36,14 @@ testPipe pipeL pipeR bs =
 testCrypto
   :: (Cipher cipher, BlockCipher cipher)
   => cipher -> String -> [ByteString] -> String -> Property
-testCrypto cipher method bss key = monadicIO $ do
-  when (not $ null key) $ do
+testCrypto cipher method bss key = monadicIO $
+  unless (null key) $ do
     (pipeLC, pipeRC) <- run makePipe
 
     pipeL <- run $ mkTP cipher method key pipeLC
     pipeR <- run $ mkTP cipher method key pipeRC
 
-    r <- all id <$> mapM (run . testPipe pipeL pipeR) bss
+    r <- and <$> mapM (run . testPipe pipeL pipeR) bss
     assert r
 
 testCrypto1

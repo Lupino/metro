@@ -11,7 +11,8 @@ import           Metro.Class        (Transport (..))
 import           Metro.TP.TCPSocket
 import           Metro.TP.UDPSocket
 
-data Socket = TCP TCPSocket | UDP UDPSocket
+data Socket = TCP TCPSocket
+    | UDP UDPSocket
 
 instance Transport Socket where
   data TransportConfig Socket =
@@ -27,7 +28,7 @@ instance Transport Socket where
   closeTransport (UDP tp) = closeTransport tp
 
 socket :: String -> TransportConfig Socket
-socket hostPort = do
+socket hostPort =
   if "udp" `isPrefixOf` hostPort then UDPTC $ udpSocket hostPort
                                  else TCPTC $ tcpSocket hostPort
 

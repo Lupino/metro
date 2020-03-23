@@ -18,15 +18,17 @@ import qualified Metro.TP.Socket as T (Socket, mapTCPSocket, mapUDPSocket)
 import           Metro.UDPServer
 import           Network.Socket  (SockAddr, Socket)
 
-data SocketServer = TCP TCPServer | UDP UDPServer
+data SocketServer = TCP TCPServer
+    | UDP UDPServer
 
-data SSSID = TCPSID Socket | UDPSID SockAddr
+data SSSID = TCPSID Socket
+    | UDPSID SockAddr
 
 instance Servable SocketServer where
   data ServerConfig SocketServer = SSConfig String
   type SID SocketServer = SSSID
   type STP SocketServer = T.Socket
-  newServer (SSConfig hostPort) = do
+  newServer (SSConfig hostPort) =
     if "udp" `isPrefixOf` hostPort then UDP <$> newServer (udpServer hostPort)
     else TCP <$> newServer (tcpServer hostPort)
   servOnce (TCP s) done = servOnce s $ mapTCPServOnceDone done

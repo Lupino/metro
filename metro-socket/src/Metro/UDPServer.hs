@@ -48,7 +48,7 @@ instance Servable UDPServer where
     bsHandle <- HM.lookup handleList $ show addr
     case bsHandle of
       Just h  -> feed h bs
-      Nothing -> do
+      Nothing ->
         void . async $ do
           h <- newBSHandle bs
           config <- newTransportConfig us addr h

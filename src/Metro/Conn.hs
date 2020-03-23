@@ -29,12 +29,12 @@ import           Metro.Utils                (recvEnough)
 import           UnliftIO
 
 data ConnEnv tp = ConnEnv
-  { transport :: tp
-  , readLock  :: L.Lock
-  , writeLock :: L.Lock
-  , buffer    :: TVar ByteString
-  , status    :: TVar Bool
-  }
+    { transport :: tp
+    , readLock  :: L.Lock
+    , writeLock :: L.Lock
+    , buffer    :: TVar ByteString
+    , status    :: TVar Bool
+    }
 
 newtype ConnT tp m a = ConnT { unConnT :: ReaderT (ConnEnv tp) m a }
   deriving
