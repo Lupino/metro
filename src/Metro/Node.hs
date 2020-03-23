@@ -28,6 +28,10 @@ module Metro.Node
   , request
   , requestAndRetry
 
+  , newSessionEnv
+  , nextSessionId
+  , runSessionT_
+
   -- combine node env and conn env
   , NodeEnv1 (..)
   , initEnv1
