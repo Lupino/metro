@@ -13,6 +13,7 @@ module Metro.Node
   , SessionMode (..)
   , NodeT
   , initEnv
+  , withEnv
 
   , setNodeMode
   , setSessionMode
@@ -135,6 +136,11 @@ initEnv uEnv nodeId sessionGen = do
     , sessTimeout = 300
     , ..
     }
+
+withEnv :: (Monad m) =>  u -> NodeT u nid k rpkt tp m a -> NodeT u nid k rpkt tp m a
+withEnv u m = do
+  env0 <- ask
+  fromConn $ runNodeT (env0 {uEnv=u}) m
 
 setNodeMode :: NodeMode -> NodeEnv u nid k rpkt -> NodeEnv u nid k rpkt
 setNodeMode mode nodeEnv = nodeEnv {nodeMode = mode}
