@@ -63,35 +63,33 @@ import           System.Log.Logger          (errorM)
 import           UnliftIO
 import           UnliftIO.Concurrent        (threadDelay)
 
-data NodeMode =
-  Single  -- single session at a time
-  | Multi -- multi  session at a time
-  deriving (Show, Eq)
+data NodeMode = Single
+    | Multi
+    deriving (Show, Eq)
 
-data SessionMode =
-  SingleAction  -- a session only handle signe action
-  | MultiAction -- a session can handle multi action,
-                -- only support on multi node mode
-  deriving (Show, Eq)
+data SessionMode = SingleAction
+    | MultiAction
+    deriving (Show, Eq)
 
 
 data NodeEnv u nid k rpkt = NodeEnv
-  { uEnv        :: u
-  , nodeStatus  :: TVar Bool
-  , nodeMode    :: NodeMode
-  , sessionMode :: SessionMode
-  , nodeSession :: TVar (Maybe (SessionEnv u nid k rpkt))
-  , sessionList :: IOHashMap k (SessionEnv u nid k rpkt)
-  , sessionGen  :: IO k
-  , nodeTimer   :: TVar Int64
-  , nodeId      :: nid
-  , sessTimeout :: Int64
-  }
+    { uEnv        :: u
+    , nodeStatus  :: TVar Bool
+    , nodeMode    :: NodeMode
+    , sessionMode :: SessionMode
+    , nodeSession :: TVar (Maybe (SessionEnv u nid k rpkt))
+    , sessionList :: IOHashMap k (SessionEnv u nid k rpkt)
+    , sessionGen  :: IO k
+    , nodeTimer   :: TVar Int64
+    , nodeId      :: nid
+    , sessTimeout :: Int64
+    , onNodeLeave :: TVar (Maybe (u -> IO ()))
+    }
 
 data NodeEnv1 u nid k rpkt tp = NodeEnv1
-  { nodeEnv :: NodeEnv u nid k rpkt
-  , connEnv :: ConnEnv tp
-  }
+    { nodeEnv :: NodeEnv u nid k rpkt
+    , connEnv :: ConnEnv tp
+    }
 
 newtype NodeT u nid k rpkt tp m a = NodeT { unNodeT :: ReaderT (NodeEnv u nid k rpkt) (ConnT tp m) a }
   deriving
@@ -130,6 +128,7 @@ initEnv uEnv nodeId sessionGen = do
   nodeSession <- newTVarIO Nothing
   sessionList <- newIOHashMap
   nodeTimer <- newTVarIO =<< getEpochTime
+  onNodeLeave <- newTVarIO Nothing
   pure NodeEnv
     { nodeMode    = Multi
     , sessionMode = SingleAction

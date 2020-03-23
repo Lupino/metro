@@ -8,9 +8,11 @@
 
 module Metro.Session
   ( SessionEnv (..)
+  , SessionEnv1 (..)
   , newSessionEnv
   , SessionT
   , runSessionT
+  , runSessionT1
   , send
   , sessionState
   , feed
@@ -18,7 +20,9 @@ module Metro.Session
   , readerSize
   , getSessionId
   , getNodeId
+  , getSessionEnv1
   , env
+  , ident
 
   , isTimeout
 
@@ -26,25 +30,31 @@ module Metro.Session
   , makeResponse_
   ) where
 
-import           Control.Monad.Reader.Class (MonadReader, asks)
+import           Control.Monad.Reader.Class (MonadReader, ask, asks)
 import           Control.Monad.Trans.Class  (MonadTrans (..))
 import           Control.Monad.Trans.Reader (ReaderT (..), runReaderT)
 import           Data.Int                   (Int64)
 import           Metro.Class                (SendPacket, SetPacketId, Transport,
                                              setPacketId)
-import           Metro.Conn                 (ConnT, FromConn (..), statusTVar)
+import           Metro.Conn                 (ConnEnv, ConnT, FromConn (..),
+                                             runConnT, statusTVar)
 import qualified Metro.Conn                 as Conn (send)
 import           Metro.Utils                (getEpochTime)
 import           UnliftIO
 
 data SessionEnv u nid k rpkt = SessionEnv
-  { sessionData    :: TVar [Maybe rpkt]
-  , sessionNid     :: nid
-  , sessionId      :: k
-  , sessionUEnv    :: u
-  , sessionTimer   :: TVar Int64
-  , sessionTimeout :: Int64
-  }
+    { sessionData    :: TVar [Maybe rpkt]
+    , sessionNid     :: nid
+    , sessionId      :: k
+    , sessionUEnv    :: u
+    , sessionTimer   :: TVar Int64
+    , sessionTimeout :: Int64
+    }
+
+data SessionEnv1 u nid k rpkt tp = SessionEnv1
+    { sessionEnv :: SessionEnv u nid k rpkt
+    , connEnv    :: ConnEnv tp
+    }
 
 newSessionEnv :: MonadIO m => u -> nid -> k -> Int64 -> [Maybe rpkt] -> m (SessionEnv u nid k rpkt)
 newSessionEnv sessionUEnv sessionNid sessionId sessionTimeout rpkts = do
@@ -73,6 +83,9 @@ instance FromConn (SessionT u nid k rpkt) where
 
 runSessionT :: SessionEnv u nid k rpkt -> SessionT u nid k rpkt tp m a -> ConnT tp m a
 runSessionT aEnv = flip runReaderT aEnv . unSessionT
+
+runSessionT1 :: SessionEnv1 u nid k rpkt tp -> SessionT u nid k rpkt tp m a -> m a
+runSessionT1 SessionEnv1 {..} = runConnT connEnv . runSessionT sessionEnv
 
 sessionState :: MonadIO m => SessionT u nid k rpkt tp m Bool
 sessionState = readTVarIO =<< fromConn statusTVar
@@ -143,3 +156,12 @@ isTimeout = do
   tout <- asks sessionTimeout
   now <- getEpochTime
   return $ (t + tout) < now
+
+getSessionEnv1 :: (Monad m, Transport tp) => SessionT u nid k rpkt tp m (SessionEnv1 u nid k rpkt tp)
+getSessionEnv1 = do
+  connEnv <- fromConn ask
+  sessionEnv <- ask
+  pure SessionEnv1 {..}
+
+ident :: SessionEnv1 u nid k rpkt tp -> (nid, k)
+ident SessionEnv1 {..} = (sessionNid sessionEnv, sessionId sessionEnv)

@@ -6,14 +6,21 @@ module Metro.TP.Debug
   , debugConfig
   ) where
 
-import           Data.ByteString   (ByteString)
-import           Data.Hex          (hex)
-import           Metro.Class       (Transport (..))
-import           System.Log.Logger (debugM)
+import           Data.ByteString       (ByteString)
+import           Data.ByteString.Char8 (unpack)
+import           Metro.Class           (Transport (..))
+import           System.Log.Logger     (debugM)
+
+hex :: ByteString -> String
+hex = Prelude.concatMap w . unpack
+  where w ch = let s = "0123456789ABCDEF"
+                   x = fromEnum ch
+               in [s !! div x 16,s !! mod x 16]
 
 data Debug tp = Debug String (ByteString -> String) tp
 
-data DebugMode = Raw | Hex
+data DebugMode = Raw
+    | Hex
 
 instance Transport tp => Transport (Debug tp) where
   data TransportConfig (Debug tp) = DebugConfig String DebugMode (TransportConfig tp)
@@ -22,7 +29,7 @@ instance Transport tp => Transport (Debug tp) where
     return $ Debug h f tp
     where f = case mode of
                 Raw -> show
-                Hex -> show . hex
+                Hex -> hex
 
   recvData (Debug h f tp) nbytes = do
     bs <- recvData tp nbytes

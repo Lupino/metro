@@ -23,6 +23,8 @@ module Metro.Server
   , setDefaultSessionTimeout
   , setKeepalive
 
+  , setOnNodeLeave
+
   , runServerT
   , stopServerT
   , handleConn
@@ -56,18 +58,19 @@ import           UnliftIO
 import           UnliftIO.Concurrent        (threadDelay)
 
 data ServerEnv serv u nid k rpkt tp = ServerEnv
-  { serveServ    :: serv
-  , serveState   :: TVar Bool
-  , nodeEnvList  :: IOHashMap nid (NodeEnv1 u nid k rpkt tp)
-  , prepare      :: SID serv -> ConnEnv tp -> IO (Maybe (nid, u))
-  , gen          :: IO k
-  , keepalive    :: Int64
-  , defSessTout  :: Int64
-  , nodeMode     :: NodeMode
-  , sessionMode  :: SessionMode
-  , serveName    :: String
-  , mapTransport :: TransportConfig (STP serv) -> TransportConfig tp
-  }
+    { serveServ    :: serv
+    , serveState   :: TVar Bool
+    , nodeEnvList  :: IOHashMap nid (NodeEnv1 u nid k rpkt tp)
+    , prepare      :: SID serv -> ConnEnv tp -> IO (Maybe (nid, u))
+    , gen          :: IO k
+    , keepalive    :: Int64
+    , defSessTout  :: Int64
+    , nodeMode     :: NodeMode
+    , sessionMode  :: SessionMode
+    , serveName    :: String
+    , onNodeLeave  :: TVar (Maybe (nid -> u -> IO ()))
+    , mapTransport :: TransportConfig (STP serv) -> TransportConfig tp
+    }
 
 
 newtype ServerT serv u nid k rpkt tp m a = ServerT {unServerT :: ReaderT (ServerEnv serv u nid k rpkt tp) m a}
@@ -105,6 +108,7 @@ initServerEnv sc gen mapTransport prepare = do
   serveServ   <- newServer sc
   serveState  <- newTVarIO True
   nodeEnvList <- newIOHashMap
+  onNodeLeave <- newTVarIO Nothing
   pure ServerEnv
     { nodeMode    = Multi
     , sessionMode = SingleAction
@@ -133,6 +137,10 @@ setKeepalive k sEnv = sEnv {keepalive = k}
 setDefaultSessionTimeout
   :: Int64 -> ServerEnv serv u nid k rpkt tp -> ServerEnv serv u nid k rpkt tp
 setDefaultSessionTimeout t sEnv = sEnv {defSessTout = t}
+
+setOnNodeLeave :: MonadIO m => ServerEnv serv u nid k rpkt tp -> (nid -> u -> IO ()) -> m ()
+setOnNodeLeave sEnv =
+  atomically . writeTVar (onNodeLeave sEnv) . Just
 
 serveForever
   :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Hashable nid, Eq k, Hashable k, GetPacketId k rpkt, RecvPacket rpkt, Servable serv)
@@ -217,6 +225,10 @@ handleConn n servID connEnv nid uEnv sess = do
       onConnEnter serveServ servID
       lift . runNodeT1 env0 $ startNodeT sess
       onConnLeave serveServ servID
+      nodeLeave <- readTVarIO onNodeLeave
+      case nodeLeave of
+        Nothing -> pure ()
+        Just f  -> liftIO $ f nid uEnv
       liftIO $ infoM "Metro.Server" (serveName ++ n ++ ": " ++ show nid ++ " disconnected")
 
     return (env0, io)
