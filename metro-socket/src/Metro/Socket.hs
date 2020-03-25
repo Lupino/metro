@@ -12,7 +12,7 @@ module Metro.Socket
 
 import           Control.Exception (bracketOnError, throwIO)
 import           Control.Monad     (when)
-import           Data.List         (isPrefixOf, reverse)
+import           Data.List         (isPrefixOf)
 import           Data.Maybe        (listToMaybe)
 import           Network.Socket    hiding (bind, connect, listen)
 import qualified Network.Socket    as S (bind, connect, listen)

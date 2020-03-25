@@ -36,6 +36,7 @@ module Metro.Node
   , NodeEnv1 (..)
   , initEnv1
   , runNodeT1
+  , getEnv1
 
   , getTimer
   , getNodeId
@@ -161,6 +162,14 @@ initEnv1
   -> ConnEnv tp -> u -> nid -> IO k -> m (NodeEnv1 u nid k rpkt tp)
 initEnv1 mapEnv connEnv uEnv nid gen = do
   nodeEnv <- mapEnv <$> initEnv uEnv nid gen
+  return NodeEnv1 {..}
+
+getEnv1
+  :: (Monad m, Transport tp)
+  => NodeT u nid k rpkt tp m (NodeEnv1 u nid k rpkt tp)
+getEnv1 = do
+  connEnv <- fromConn ask
+  nodeEnv <- ask
   return NodeEnv1 {..}
 
 runSessionT_ :: Monad m => SessionEnv u nid k rpkt -> SessionT u nid k rpkt tp m a -> NodeT u nid k rpkt tp m a
