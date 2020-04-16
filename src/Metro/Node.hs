@@ -214,9 +214,7 @@ tryMainLoop
 tryMainLoop sessionHandler = do
   r <- tryAny $ mainLoop sessionHandler
   case r of
-    Left e  -> do
-      liftIO $ errorM "Metro.Node" $ "MainLoop Error: " ++ show e
-      stopNodeT
+    Left e  -> stopNodeT
     Right _ -> pure ()
 
 mainLoop
