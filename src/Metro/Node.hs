@@ -32,6 +32,8 @@ module Metro.Node
   , nextSessionId
   , runSessionT_
 
+  , busy
+
   -- combine node env and conn env
   , NodeEnv1 (..)
   , initEnv1
@@ -52,7 +54,7 @@ import           Control.Monad.Trans.Maybe  (runMaybeT)
 import           Control.Monad.Trans.Reader (ReaderT (..), runReaderT)
 import           Data.Hashable
 import           Data.Int                   (Int64)
-import           Data.Maybe                 (fromMaybe)
+import           Data.Maybe                 (fromMaybe, isJust)
 import           Metro.Class                (GetPacketId, RecvPacket,
                                              SendPacket, SetPacketId, Transport,
                                              getPacketId)
@@ -207,6 +209,13 @@ removeSession mid = do
   case nodeMode of
     Single -> atomically $ writeTVar nodeSession Nothing
     Multi  -> HM.delete sessionList mid
+
+busy :: MonadIO m => NodeT u nid k rpkt tp m Bool
+busy = do
+  NodeEnv{..} <- ask
+  case nodeMode of
+    Single -> isJust <$> readTVarIO nodeSession
+    Multi  -> return False
 
 tryMainLoop
   :: (MonadUnliftIO m, Transport tp, RecvPacket rpkt, GetPacketId k rpkt, Eq k, Hashable k)
