@@ -8,6 +8,7 @@
 
 module Metro.Server
   ( startServer
+  , startServer_
   , ServerEnv
   , ServerT
   , Servable (..)
@@ -49,7 +50,7 @@ import qualified Metro.IOHashMap            as HM (delete, elems, insertSTM,
 import           Metro.Node                 (NodeEnv1, NodeMode (..),
                                              SessionMode (..), getNodeId,
                                              getTimer, initEnv1, runNodeT1,
-                                             startNodeT, stopNodeT)
+                                             startNodeT_, stopNodeT)
 import qualified Metro.Node                 as Node
 import           Metro.Session              (SessionT)
 import           Metro.Utils                (getEpochTime)
@@ -144,14 +145,15 @@ setOnNodeLeave sEnv =
 
 serveForever
   :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Hashable nid, Eq k, Hashable k, GetPacketId k rpkt, RecvPacket rpkt, Servable serv)
-  => SessionT u nid k rpkt tp m ()
+  => (rpkt -> m Bool)
+  -> SessionT u nid k rpkt tp m ()
   -> ServerT serv u nid k rpkt tp m ()
-serveForever sess = do
+serveForever preprocess sess = do
   name <- asks serveName
   liftIO $ infoM "Metro.Server" $ name ++ "Server started"
   state <- asks serveState
   void . runMaybeT . forever $ do
-    e <- lift $ tryServeOnce sess
+    e <- lift $ tryServeOnce preprocess sess
     when (isLeft e) mzero
     alive <- readTVarIO state
     unless alive mzero
@@ -159,9 +161,10 @@ serveForever sess = do
 
 tryServeOnce
   :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Hashable nid, Eq k, Hashable k, GetPacketId k rpkt, RecvPacket rpkt, Servable serv)
-  => SessionT u nid k rpkt tp m ()
+  => (rpkt -> m Bool)
+  -> SessionT u nid k rpkt tp m ()
   -> ServerT serv u nid k rpkt tp m (Either SomeException ())
-tryServeOnce sess = tryAny (serveOnce sess)
+tryServeOnce preprocess sess = tryAny (serveOnce preprocess sess)
 
 serveOnce
   :: ( MonadUnliftIO m
@@ -169,11 +172,12 @@ serveOnce
      , Show nid, Eq nid, Hashable nid
      , Eq k, Hashable k, GetPacketId k rpkt, RecvPacket rpkt
      , Servable serv)
-  => SessionT u nid k rpkt tp m ()
+  => (rpkt -> m Bool)
+  -> SessionT u nid k rpkt tp m ()
   -> ServerT serv u nid k rpkt tp m ()
-serveOnce sess = do
+serveOnce preprocess sess = do
   ServerEnv {..} <- ask
-  servOnce serveServ $ doServeOnce sess
+  servOnce serveServ $ doServeOnce preprocess sess
 
 doServeOnce
   :: ( MonadUnliftIO m
@@ -181,16 +185,17 @@ doServeOnce
      , Show nid, Eq nid, Hashable nid
      , Eq k, Hashable k, GetPacketId k rpkt, RecvPacket rpkt
      , Servable serv)
-  => SessionT u nid k rpkt tp m ()
+  => (rpkt -> m Bool)
+  -> SessionT u nid k rpkt tp m ()
   -> Maybe (SID serv, TransportConfig (STP serv))
   -> ServerT serv u nid k rpkt tp m ()
-doServeOnce _ Nothing = return ()
-doServeOnce sess (Just (servID, stp)) = do
+doServeOnce _ _ Nothing = return ()
+doServeOnce preprocess sess (Just (servID, stp)) = do
   ServerEnv {..} <- ask
   connEnv <- initConnEnv $ mapTransport stp
   mnid <- liftIO $ prepare servID connEnv
   forM_ mnid $ \(nid, uEnv) -> do
-    (_, io) <- handleConn "Client" servID connEnv nid uEnv sess
+    (_, io) <- handleConn "Client" servID connEnv nid uEnv preprocess sess
     r <- waitCatch io
     case r of
       Left e  -> liftIO $ errorM "Metro.Server" $ "Handle connection error " ++ show e
@@ -203,9 +208,10 @@ handleConn
   -> ConnEnv tp
   -> nid
   -> u
+  -> (rpkt -> m Bool)
   -> SessionT u nid k rpkt tp m ()
   -> ServerT serv u nid k rpkt tp m (NodeEnv1 u nid k rpkt tp, Async ())
-handleConn n servID connEnv nid uEnv sess = do
+handleConn n servID connEnv nid uEnv preprocess sess = do
     ServerEnv {..} <- ask
 
     liftIO $ infoM "Metro.Server" (serveName ++ n ++ ": " ++ show nid ++ " connected")
@@ -223,7 +229,7 @@ handleConn n servID connEnv nid uEnv sess = do
 
     io <- async $ do
       onConnEnter serveServ servID
-      lift . runNodeT1 env0 $ startNodeT sess
+      lift . runNodeT1 env0 $ startNodeT_ preprocess sess
       onConnLeave serveServ servID
       nodeLeave <- readTVarIO onNodeLeave
       case nodeLeave of
@@ -238,9 +244,17 @@ startServer
   => ServerEnv serv u nid k rpkt tp
   -> SessionT u nid k rpkt tp m ()
   -> m ()
-startServer sEnv sess = do
+startServer sEnv = startServer_ sEnv (const $ return True)
+
+startServer_
+  :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Hashable nid, Eq k, Hashable k, GetPacketId k rpkt, RecvPacket rpkt, Servable serv)
+  => ServerEnv serv u nid k rpkt tp
+  -> (rpkt -> m Bool)
+  -> SessionT u nid k rpkt tp m ()
+  -> m ()
+startServer_ sEnv preprocess sess = do
   when (keepalive sEnv > 0) $ runCheckNodeState (keepalive sEnv) (nodeEnvList sEnv)
-  runServerT sEnv $ serveForever sess
+  runServerT sEnv $ serveForever preprocess sess
   liftIO $ servClose $ serveServ sEnv
 
 stopServerT :: (MonadIO m, Servable serv) => ServerT serv u nid k rpkt tp m ()

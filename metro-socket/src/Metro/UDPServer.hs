@@ -78,9 +78,10 @@ newClient
   -> String
   -> nid
   -> u
+  -> (rpkt -> m Bool)
   -> SessionT u nid k rpkt tp m ()
   -> ServerT UDPServer u nid k rpkt tp m (Maybe (NodeEnv1 u nid k rpkt tp))
-newClient mk hostPort nid uEnv sess = do
+newClient mk hostPort nid uEnv preprocess sess = do
   addr <- liftIO $ getDatagramAddr hostPort
   case addr of
     Nothing -> do
@@ -91,4 +92,4 @@ newClient mk hostPort nid uEnv sess = do
       h <- newBSHandle empty
       config <- mk <$> newTransportConfig us (addrAddress addr0) h
       connEnv <- initConnEnv config
-      Just . fst <$> handleConn "Server" (addrAddress addr0) connEnv nid uEnv sess
+      Just . fst <$> handleConn "Server" (addrAddress addr0) connEnv nid uEnv preprocess sess

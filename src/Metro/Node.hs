@@ -21,6 +21,7 @@ module Metro.Node
 
   , runNodeT
   , startNodeT
+  , startNodeT_
   , withSessionT
   , nodeState
   , stopNodeT
@@ -219,21 +220,22 @@ busy = do
 
 tryMainLoop
   :: (MonadUnliftIO m, Transport tp, RecvPacket rpkt, GetPacketId k rpkt, Eq k, Hashable k)
-  => SessionT u nid k rpkt tp m () -> NodeT u nid k rpkt tp m ()
-tryMainLoop sessionHandler = do
-  r <- tryAny $ mainLoop sessionHandler
+  => (rpkt -> m Bool) -> SessionT u nid k rpkt tp m () -> NodeT u nid k rpkt tp m ()
+tryMainLoop preprocess sessionHandler = do
+  r <- tryAny $ mainLoop preprocess sessionHandler
   case r of
-    Left e  -> stopNodeT
+    Left _  -> stopNodeT
     Right _ -> pure ()
 
 mainLoop
   :: (MonadUnliftIO m, Transport tp, RecvPacket rpkt, GetPacketId k rpkt, Eq k, Hashable k)
-  => SessionT u nid k rpkt tp m () -> NodeT u nid k rpkt tp m ()
-mainLoop sessionHandler = do
+  => (rpkt -> m Bool) -> SessionT u nid k rpkt tp m () -> NodeT u nid k rpkt tp m ()
+mainLoop preprocess sessionHandler = do
   NodeEnv{..} <- ask
   rpkt <- fromConn receive
   setTimer =<< getEpochTime
-  void . async $ tryDoFeed rpkt sessionHandler
+  r <- lift $ preprocess rpkt
+  when r $ void . async $ tryDoFeed rpkt sessionHandler
 
 tryDoFeed
   :: (MonadUnliftIO m, Transport tp, GetPacketId k rpkt, Eq k, Hashable k)
@@ -268,11 +270,16 @@ doFeed rpkt sessionHandler = do
 startNodeT
   :: (MonadUnliftIO m, Transport tp, RecvPacket rpkt, GetPacketId k rpkt, Eq k, Hashable k)
   => SessionT u nid k rpkt tp m () -> NodeT u nid k rpkt tp m ()
-startNodeT sessionHandler = do
+startNodeT = startNodeT_ (const $ return True)
+
+startNodeT_
+  :: (MonadUnliftIO m, Transport tp, RecvPacket rpkt, GetPacketId k rpkt, Eq k, Hashable k)
+  => (rpkt -> m Bool) -> SessionT u nid k rpkt tp m () -> NodeT u nid k rpkt tp m ()
+startNodeT_ preprocess sessionHandler = do
   sess <- runCheckSessionState
   void . runMaybeT . forever $ do
     alive <- lift nodeState
-    if alive then lift $ tryMainLoop sessionHandler
+    if alive then lift $ tryMainLoop preprocess sessionHandler
              else mzero
 
   cancel sess
