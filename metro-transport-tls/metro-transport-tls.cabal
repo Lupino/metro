@@ -1,14 +1,16 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.31.2.
+-- This file has been generated from package.yaml by hpack version 0.33.0.
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 5603b1fe60a4bb3c8de43778cc0e493e17e793228518ac5f16a04dc72283d3a8
+-- hash: 4800ce3a672404ff6894c0407fa75e3d83ebb0d5c936fd2d651342365244eebb
 
 name:           metro-transport-tls
 version:        0.1.0.0
-description:    Please see the README on GitHub at <https://github.com/Lupino/metro#readme>
+synopsis:       TLS transport for metro
+description:    Please see the README on GitHub at <https://github.com/Lupino/metro/tree/master/metro-transport-tls#readme>
+category:       Web
 homepage:       https://github.com/Lupino/metro#readme
 bug-reports:    https://github.com/Lupino/metro/issues
 author:         Lupino

@@ -1,14 +1,16 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.31.2.
+-- This file has been generated from package.yaml by hpack version 0.33.0.
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 509db13e58b3573d7025bca292663336da1af0b9d3f62a4ec63ce1a505c41738
+-- hash: 827994d7edfa7de9ddc554689c94455f9ac4747c7e0fa2e21a5647547d6e9b24
 
 name:           metro-transport-websockets
 version:        0.1.0.0
-description:    Please see the README on GitHub at <https://github.com/Lupino/metro#readme>
+synopsis:       Websockets transport for metro
+description:    Please see the README on GitHub at <https://github.com/Lupino/metro/tree/master/metro-transport-websockets#readme>
+category:       Web
 homepage:       https://github.com/Lupino/metro#readme
 bug-reports:    https://github.com/Lupino/metro/issues
 author:         Lupino

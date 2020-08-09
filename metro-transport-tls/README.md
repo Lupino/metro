@@ -1,1 +1,3 @@
-# metro-transport-xor
+# metro-transport-tls
+
+TLS transport for metro
