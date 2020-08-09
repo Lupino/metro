@@ -1,14 +1,16 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.31.2.
+-- This file has been generated from package.yaml by hpack version 0.33.0.
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 03fa88effd09dd8185f4c60c2abfa70de3b05a9e32f30858a05174f79ff41829
+-- hash: dcb41445e65758018ed9b7846b1058ae7edd3e0b6a89cd5d4dca8da443e87798
 
 name:           metro-socket
 version:        0.1.0.0
-description:    Please see the README on GitHub at <https://github.com/Lupino/metro#readme>
+synopsis:       Socket transport for metro
+description:    Please see the README on GitHub at <https://github.com/Lupino/metro/tree/master/metro-socket#readme>
+category:       Web
 homepage:       https://github.com/Lupino/metro#readme
 bug-reports:    https://github.com/Lupino/metro/issues
 author:         Lupino

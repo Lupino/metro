@@ -47,10 +47,6 @@ newtype ConnT tp m a = ConnT { unConnT :: ReaderT (ConnEnv tp) m a }
     )
 
 instance MonadUnliftIO m => MonadUnliftIO (ConnT tp m) where
-  askUnliftIO = ConnT $
-    ReaderT $ \r ->
-      withUnliftIO $ \u ->
-        return (UnliftIO (unliftIO u . runConnT r))
   withRunInIO inner = ConnT $
     ReaderT $ \r ->
       withRunInIO $ \run ->

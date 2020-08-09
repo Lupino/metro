@@ -46,9 +46,10 @@ startExampleServer = do
   void $ forkIO $ startServer sEnv sessionHandler
 ```
 
-more see [metro-example/src/Metro/Example.hs](metro-example/src/Metro/Example.hs)
+more see [metro-example/src/Metro/Example.hs](https://github.com/Lupino/metro/tree/master/metro-example/src/Metro/Example.hs)
 
 ## Projects use metro
 
 - [haskell-hole](https://github.com/Lupino/haskell-hole) A hole to pass through the gateway. haskell version
-- [metro-example](metro-example) A example use metro
+- [metro-example](https://github.com/Lupino/metro/tree/master/metro-example) An example use metro
+- [haskell-periodic](https://github.com/Lupino/haskell-periodic) Periodic task system haskell client and server

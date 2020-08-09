@@ -69,10 +69,6 @@ instance MonadTrans (SessionT u nid k rpkt tp) where
   lift = SessionT . lift . lift
 
 instance MonadUnliftIO m => MonadUnliftIO (SessionT u nid k rpkt tp m) where
-  askUnliftIO = SessionT $
-    ReaderT $ \r ->
-      withUnliftIO $ \u ->
-        return (UnliftIO (unliftIO u . runSessionT r))
   withRunInIO inner = SessionT $
     ReaderT $ \r ->
       withRunInIO $ \run ->

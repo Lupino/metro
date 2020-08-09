@@ -110,10 +110,6 @@ newtype NodeT u nid k rpkt tp m a = NodeT { unNodeT :: ReaderT (NodeEnv u nid k 
     )
 
 instance MonadUnliftIO m => MonadUnliftIO (NodeT u nid k rpkt tp m) where
-  askUnliftIO = NodeT $
-    ReaderT $ \r ->
-      withUnliftIO $ \u ->
-        return (UnliftIO (unliftIO u . runNodeT r))
   withRunInIO inner = NodeT $
     ReaderT $ \r ->
       withRunInIO $ \run ->
