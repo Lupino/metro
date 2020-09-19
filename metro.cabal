@@ -4,10 +4,10 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 124f20e53bf16376d862c5d84dd92ae18ac0dcaaca36281152e40f7d65acc566
+-- hash: 24d5ce7bcac547eb3eeb276c1486b3d82bc04c04fc1805c000dd3d0b3f402547
 
 name:           metro
-version:        0.1.0.1
+version:        0.1.0.2
 synopsis:       A simple tcp and udp socket server framework
 description:    Please see the README on GitHub at <https://github.com/Lupino/metro#readme>
 category:       Network,Framework
