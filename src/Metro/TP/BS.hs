@@ -26,7 +26,7 @@ newBSHandle = newBSHandle_ 41943040 -- 40M
 
 newBSHandle_ :: MonadIO m => Int -> ByteString -> m BSHandle
 newBSHandle_ size bs = do
-  state <- newTVarIO True
+  state <- newTVarIO False
   BSHandle size state <$> newTVarIO bs
 
 feed :: MonadIO m => BSHandle -> ByteString -> m ()
@@ -48,7 +48,8 @@ data BSTransport = BS
 
 instance Transport BSTransport where
   data TransportConfig BSTransport = BSConfig BSHandle (ByteString -> IO ())
-  newTransport (BSConfig (BSHandle _ bsState bsHandle) bsWriter) =
+  newTransport (BSConfig (BSHandle _ bsState bsHandle) bsWriter) = do
+    atomically $ writeTVar bsState True
     return BS {..}
   recvData BS {..} nbytes = atomically $ do
     bs <- readTVar bsHandle
@@ -62,7 +63,9 @@ instance Transport BSTransport where
   sendData BS {..} bs = do
     status <- readTVarIO bsState
     when status $ bsWriter bs
-  closeTransport BS {..} = atomically $ writeTVar bsState False
+  closeTransport BS {..} = atomically $ do
+    writeTVar bsState False
+    writeTVar bsHandle empty
 
 bsTransportConfig :: BSHandle -> (ByteString -> IO ()) -> TransportConfig BSTransport
 bsTransportConfig = BSConfig
