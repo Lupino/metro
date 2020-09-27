@@ -91,7 +91,7 @@ data NodeEnv u nid k rpkt = NodeEnv
     , sessionGen  :: IO k
     , nodeTimer   :: TVar Int64
     , nodeId      :: nid
-    , sessTimeout :: Int64
+    , sessTimeout :: TVar Int64
     , onNodeLeave :: TVar (Maybe (u -> IO ()))
     }
 
@@ -129,15 +129,15 @@ runNodeT1 NodeEnv1 {..} = runConnT connEnv . runNodeT nodeEnv
 
 initEnv :: MonadIO m => u -> nid -> IO k -> m (NodeEnv u nid k rpkt)
 initEnv uEnv nodeId sessionGen = do
-  nodeStatus <- newTVarIO True
+  nodeStatus  <- newTVarIO True
   nodeSession <- newTVarIO Nothing
   sessionList <- newIOHashMap
-  nodeTimer <- newTVarIO =<< getEpochTime
+  nodeTimer   <- newTVarIO =<< getEpochTime
   onNodeLeave <- newTVarIO Nothing
+  sessTimeout <- newTVarIO 300
   pure NodeEnv
     { nodeMode    = Multi
     , sessionMode = SingleAction
-    , sessTimeout = 300
     , ..
     }
 
@@ -152,7 +152,7 @@ setNodeMode mode nodeEnv = nodeEnv {nodeMode = mode}
 setSessionMode :: SessionMode -> NodeEnv u nid k rpkt -> NodeEnv u nid k rpkt
 setSessionMode mode nodeEnv = nodeEnv {sessionMode = mode}
 
-setDefaultSessionTimeout :: Int64 -> NodeEnv u nid k rpkt -> NodeEnv u nid k rpkt
+setDefaultSessionTimeout :: TVar Int64 -> NodeEnv u nid k rpkt -> NodeEnv u nid k rpkt
 setDefaultSessionTimeout t nodeEnv = nodeEnv { sessTimeout = t }
 
 initEnv1
@@ -185,7 +185,8 @@ withSessionT sTout sessionT =
 newSessionEnv :: (MonadIO m, Eq k, Hashable k) => Maybe Int64 -> k -> NodeT u nid k rpkt tp m (SessionEnv u nid k rpkt)
 newSessionEnv sTout sid = do
   NodeEnv{..} <- ask
-  sEnv <- S.newSessionEnv uEnv nodeId sid (fromMaybe sessTimeout sTout) []
+  dTout <- readTVarIO sessTimeout
+  sEnv <- S.newSessionEnv uEnv nodeId sid (fromMaybe dTout sTout) []
   case nodeMode of
     Single -> atomically $ do
       sess <- readTVar nodeSession
@@ -255,7 +256,8 @@ doFeed rpkt sessionHandler = do
       runSessionT_ aEnv $ feed $ Just rpkt
     Nothing    -> do
       let sid = getPacketId rpkt
-      sEnv <- S.newSessionEnv uEnv nodeId sid sessTimeout [Just rpkt]
+      dTout <- readTVarIO sessTimeout
+      sEnv <- S.newSessionEnv uEnv nodeId sid dTout [Just rpkt]
       when (sessionMode == MultiAction) $
         case nodeMode of
           Single -> atomically $ writeTVar nodeSession $ Just sEnv

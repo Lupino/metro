@@ -64,8 +64,8 @@ data ServerEnv serv u nid k rpkt tp = ServerEnv
     , nodeEnvList  :: IOHashMap nid (NodeEnv1 u nid k rpkt tp)
     , prepare      :: SID serv -> ConnEnv tp -> IO (Maybe (nid, u))
     , gen          :: IO k
-    , keepalive    :: Int64
-    , defSessTout  :: Int64
+    , keepalive    :: TVar Int64 -- client keepalive seconds
+    , defSessTout  :: TVar Int64 -- session timeout seconds
     , nodeMode     :: NodeMode
     , sessionMode  :: SessionMode
     , serveName    :: String
@@ -106,12 +106,12 @@ initServerEnv sc gen mapTransport prepare = do
   serveState  <- newTVarIO True
   nodeEnvList <- newIOHashMap
   onNodeLeave <- newTVarIO Nothing
+  keepalive   <- newTVarIO 0
+  defSessTout <- newTVarIO 300
   pure ServerEnv
     { nodeMode    = Multi
     , sessionMode = SingleAction
     , serveName   = "Metro"
-    , keepalive   = 0
-    , defSessTout = 300
     , ..
     }
 
@@ -128,16 +128,17 @@ setServerName
 setServerName n sEnv = sEnv {serveName = n}
 
 setKeepalive
-  :: Int64 -> ServerEnv serv u nid k rpkt tp -> ServerEnv serv u nid k rpkt tp
-setKeepalive k sEnv = sEnv {keepalive = k}
+  :: MonadIO m => ServerEnv serv u nid k rpkt tp -> Int -> m ()
+setKeepalive sEnv =
+  atomically . writeTVar (keepalive sEnv) . fromIntegral
 
 setDefaultSessionTimeout
-  :: Int64 -> ServerEnv serv u nid k rpkt tp -> ServerEnv serv u nid k rpkt tp
-setDefaultSessionTimeout t sEnv = sEnv {defSessTout = t}
+  :: MonadIO m => ServerEnv serv u nid k rpkt tp -> Int -> m ()
+setDefaultSessionTimeout sEnv =
+  atomically . writeTVar (defSessTout sEnv) . fromIntegral
 
 setOnNodeLeave :: MonadIO m => ServerEnv serv u nid k rpkt tp -> (nid -> u -> IO ()) -> m ()
-setOnNodeLeave sEnv =
-  atomically . writeTVar (onNodeLeave sEnv) . Just
+setOnNodeLeave sEnv = atomically . writeTVar (onNodeLeave sEnv) . Just
 
 serveForever
   :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Hashable nid, Eq k, Hashable k, GetPacketId k rpkt, RecvPacket rpkt, Servable serv)
@@ -249,7 +250,7 @@ startServer_
   -> SessionT u nid k rpkt tp m ()
   -> m ()
 startServer_ sEnv preprocess sess = do
-  when (keepalive sEnv > 0) $ runCheckNodeState (keepalive sEnv) (nodeEnvList sEnv)
+  runCheckNodeState (keepalive sEnv) (nodeEnvList sEnv)
   runServerT sEnv $ serveForever preprocess sess
   liftIO $ servClose $ serveServ sEnv
 
@@ -261,17 +262,20 @@ stopServerT = do
 
 runCheckNodeState
   :: (MonadUnliftIO m, Eq nid, Hashable nid, Transport tp)
-  => Int64 -> IOHashMap nid (NodeEnv1 u nid k rpkt tp) -> m ()
+  => TVar Int64 -> IOHashMap nid (NodeEnv1 u nid k rpkt tp) -> m ()
 runCheckNodeState alive envList = void . async . forever $ do
-  threadDelay $ fromIntegral alive * 1000 * 1000
-  mapM_ (checkAlive envList) =<< HM.elems envList
+  t <- readTVarIO alive
+  when (t > 0) $ do
+    threadDelay $ fromIntegral t * 1000 * 1000
+    mapM_ (checkAlive envList) =<< HM.elems envList
 
   where checkAlive
           :: (MonadUnliftIO m, Eq nid, Hashable nid, Transport tp)
           => IOHashMap nid (NodeEnv1 u nid k rpkt tp)
           -> NodeEnv1 u nid k rpkt tp -> m ()
         checkAlive ref env1 = runNodeT1 env1 $ do
-              expiredAt <- (alive +) <$> getTimer
+              t <- readTVarIO alive
+              expiredAt <- (t +) <$> getTimer
               now <- getEpochTime
               when (now > expiredAt) $ do
                 nid <- getNodeId

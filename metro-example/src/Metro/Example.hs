@@ -81,14 +81,14 @@ startMetroServer :: ServerConfig -> IO ()
 startMetroServer ServerConfig {..} = do
   setupLog logLevel
   sEnv <- newMetroServer (debugConfig "Example" Raw) (socketServer sockPort) mapEnv
+  setKeepalive sEnv keepalive
+  setDefaultSessionTimeout sEnv sessTout
   startWeb (getNodeEnvList sEnv) webHost webPort
 
   where mapEnv :: ExampleEnv serv tp -> ExampleEnv serv tp
         mapEnv =
           setNodeMode Multi
           . setSessionMode SingleAction
-          . setKeepalive (fromIntegral keepalive)
-          . setDefaultSessionTimeout (fromIntegral sessTout)
           . setServerName "Example"
 
 startMetroClient :: ServerConfig -> IO ()
