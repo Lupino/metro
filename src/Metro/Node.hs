@@ -18,6 +18,7 @@ module Metro.Node
   , setNodeMode
   , setSessionMode
   , setDefaultSessionTimeout
+  , setDefaultSessionTimeout1
 
   , runNodeT
   , startNodeT
@@ -154,6 +155,10 @@ setSessionMode mode nodeEnv = nodeEnv {sessionMode = mode}
 
 setDefaultSessionTimeout :: TVar Int64 -> NodeEnv u nid k rpkt -> NodeEnv u nid k rpkt
 setDefaultSessionTimeout t nodeEnv = nodeEnv { sessTimeout = t }
+
+setDefaultSessionTimeout1 :: MonadIO m => NodeEnv1 u nid k rpkt tp -> Int64 -> m ()
+setDefaultSessionTimeout1 NodeEnv1 {..} = atomically . writeTVar (sessTimeout nodeEnv)
+
 
 initEnv1
   :: MonadIO m
