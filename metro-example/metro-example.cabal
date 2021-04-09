@@ -1,10 +1,10 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.31.2.
+-- This file has been generated from package.yaml by hpack version 0.33.0.
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 1dd12dd2bf546c77e050a950a20b4b84c70ffca3f9b2f258e655df7887f69c81
+-- hash: 3e5e96ce50ab13a370f1951ec6016bcb4ea95d085f58e0e9bd15bec7ee9e86f2
 
 name:           metro-example
 version:        0.1.0.0
@@ -41,6 +41,7 @@ library
     , binary
     , bytestring
     , data-default-class
+    , hashmap-io
     , hslogger
     , http-types
     , metro

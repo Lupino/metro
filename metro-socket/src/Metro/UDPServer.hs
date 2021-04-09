@@ -13,12 +13,12 @@ module Metro.UDPServer
 import           Control.Monad             (void)
 import           Data.ByteString           (empty)
 import           Data.Hashable
+import           Data.IOHashMap            (IOHashMap)
+import qualified Data.IOHashMap            as HM (delete, empty, insert, lookup)
 import           Metro.Class               (GetPacketId, RecvPacket,
                                             Servable (..), Transport,
                                             TransportConfig)
 import           Metro.Conn
-import           Metro.IOHashMap           (IOHashMap, newIOHashMap)
-import qualified Metro.IOHashMap           as HM (delete, insert, lookup)
 import           Metro.Node                (NodeEnv1)
 import           Metro.Server              (ServerT, getServ, handleConn,
                                             serverEnv)
@@ -41,11 +41,11 @@ instance Servable UDPServer where
   type STP UDPServer = UDPSocket
   newServer (UDPConfig hostPort) = do
     sock <- liftIO $ bindTo hostPort
-    UDPServer sock <$> newIOHashMap
+    UDPServer sock <$> HM.empty
   servOnce us@(UDPServer serv handleList) done = do
     (bs, addr) <- liftIO $ recvFrom serv 4194304
 
-    bsHandle <- HM.lookup handleList $ show addr
+    bsHandle <- HM.lookup (show addr) handleList
     case bsHandle of
       Just h  -> feed h bs
       Nothing ->
@@ -56,7 +56,7 @@ instance Servable UDPServer where
           closeBSHandle h
 
   onConnEnter _ _ = return ()
-  onConnLeave (UDPServer _ handleList) addr = HM.delete handleList (show addr)
+  onConnLeave (UDPServer _ handleList) addr = HM.delete (show addr) handleList
   servClose (UDPServer serv _) = liftIO $ Socket.close serv
 
 udpServer :: String -> ServerConfig UDPServer
@@ -69,7 +69,7 @@ newTransportConfig
   -> BSHandle
   -> m (TransportConfig UDPSocket)
 newTransportConfig (UDPServer sock handleList) addr h = do
-  HM.insert handleList (show addr) h
+  HM.insert (show addr) h handleList
   return $ udpSocket_ $ bsTransportConfig h $ flip (sendAllTo sock) addr
 
 newClient

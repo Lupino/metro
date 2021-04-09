@@ -8,13 +8,13 @@ import           Data.Aeson                      (object, (.=))
 import           Data.ByteString                 (ByteString)
 import           Data.ByteString.Lazy            (fromStrict, toStrict)
 import           Data.Default.Class              (def)
+import           Data.IOHashMap                  (IOHashMap)
+import qualified Data.IOHashMap                  as HM (lookup)
 import           Data.Streaming.Network.Internal (HostPreference (Host))
 import           Metro                           (Transport)
 import           Metro.Example.Device            (DeviceEnv, request,
                                                   runDeviceT)
 import           Metro.Example.Types             (Command (..), File (..))
-import           Metro.IOHashMap                 (IOHashMap)
-import qualified Metro.IOHashMap                 as HM (lookup)
 import           Network.HTTP.Types              (status500)
 import           Network.Wai.Handler.Warp        (setHost, setPort)
 import           UnliftIO
@@ -39,7 +39,7 @@ requestHandler :: (Transport tp) => IOHashMap ByteString (DeviceEnv tp) -> Actio
 requestHandler devicesEnv = do
   ip <- param "uuid"
   wb <- body
-  env0 <- HM.lookup devicesEnv ip
+  env0 <- HM.lookup ip devicesEnv
   case env0 of
     Nothing -> do
       status status500
@@ -57,7 +57,7 @@ uploadHandler cmd devicesEnv = do
   ip <- param "uuid"
   fn <- param "fileName"
   wb <- body
-  env0 <- HM.lookup devicesEnv ip
+  env0 <- HM.lookup ip devicesEnv
   case env0 of
     Nothing -> do
       status status500
@@ -71,7 +71,7 @@ downloadHandler :: (Transport tp) => IOHashMap ByteString (DeviceEnv tp) -> Acti
 downloadHandler devicesEnv = do
   ip <- param "uuid"
   fn <- param "fileName"
-  env0 <- HM.lookup devicesEnv ip
+  env0 <- HM.lookup ip devicesEnv
   case env0 of
     Nothing -> do
       status status500
@@ -84,7 +84,7 @@ downloadHandler devicesEnv = do
 endHandler :: (Transport tp) => IOHashMap ByteString (DeviceEnv tp) -> ActionM ()
 endHandler devicesEnv = do
   ip <- param "uuid"
-  env0 <- HM.lookup devicesEnv ip
+  env0 <- HM.lookup ip devicesEnv
   case env0 of
     Nothing -> do
       status status500

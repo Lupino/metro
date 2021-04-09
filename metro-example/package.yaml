@@ -37,6 +37,7 @@ library:
   - streaming-commons
   - aeson
   - hslogger
+  - hashmap-io
 
 executables:
   metro-server:

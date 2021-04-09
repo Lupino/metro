@@ -1,4 +1,4 @@
-name:                metro-socket
+name:                hashmap-io
 version:             0.1.0.0
 github:              "Lupino/metro"
 license:             BSD3
@@ -11,13 +11,13 @@ extra-source-files:
 - ChangeLog.md
 
 # Metadata used when publishing your package
-synopsis:            Socket transport for metro
-category:            Web
+synopsis:            A Hashmap on io monad.
+category:            Data
 
 # To avoid duplicated efforts in documentation and dealing with the
 # complications of embedding Haddock markup inside cabal files, it is
 # common to point users to the README.md file.
-description:         Please see the README on GitHub at <https://github.com/Lupino/metro/tree/master/metro-socket#readme>
+description:         Please see the README on GitHub at <https://github.com/Lupino/metro#readme>
 
 dependencies:
 - base >= 4.7 && < 5
@@ -25,14 +25,6 @@ dependencies:
 library:
   source-dirs: src
   dependencies:
-  - unliftio
-  - directory
-  - network
-  - metro
-  - hslogger
-  - transformers
   - hashable
-  - mtl
-
-  - bytestring
-  - hashmap-io
+  - unordered-containers
+  - stm

@@ -55,6 +55,9 @@ import           Control.Monad.Trans.Class  (MonadTrans (..))
 import           Control.Monad.Trans.Maybe  (runMaybeT)
 import           Control.Monad.Trans.Reader (ReaderT (..), runReaderT)
 import           Data.Hashable
+import           Data.IOHashMap             (IOHashMap)
+import qualified Data.IOHashMap             as HM (delete, elems, empty, insert,
+                                                   lookup, size)
 import           Data.Int                   (Int64)
 import           Data.Maybe                 (fromMaybe, isJust)
 import           Metro.Class                (GetPacketId, RecvPacket,
@@ -62,9 +65,6 @@ import           Metro.Class                (GetPacketId, RecvPacket,
                                              getPacketId)
 import           Metro.Conn                 (ConnEnv, ConnT, FromConn (..),
                                              close, receive, runConnT)
-import           Metro.IOHashMap            (IOHashMap, newIOHashMap)
-import qualified Metro.IOHashMap            as HM (delete, elems, insert,
-                                                   lookup, size)
 import           Metro.Session              (SessionEnv (sessionId), SessionT,
                                              feed, isTimeout, runSessionT)
 import qualified Metro.Session              as S (newSessionEnv, receive, send)
@@ -132,7 +132,7 @@ initEnv :: MonadIO m => u -> nid -> IO k -> m (NodeEnv u nid k rpkt)
 initEnv uEnv nodeId sessionGen = do
   nodeStatus  <- newTVarIO True
   nodeSession <- newTVarIO Nothing
-  sessionList <- newIOHashMap
+  sessionList <- HM.empty
   nodeTimer   <- newTVarIO =<< getEpochTime
   onNodeLeave <- newTVarIO Nothing
   sessTimeout <- newTVarIO 300
@@ -200,7 +200,7 @@ newSessionEnv sTout sid = do
         Just _  -> do
           state <- readTVar nodeStatus
           when state retrySTM
-    Multi -> HM.insert sessionList sid sEnv
+    Multi -> HM.insert sid sEnv sessionList
   return sEnv
 
 nextSessionId :: MonadIO m => NodeT u nid k rpkt tp m k
@@ -211,7 +211,7 @@ removeSession mid = do
   NodeEnv{..} <- ask
   case nodeMode of
     Single -> atomically $ writeTVar nodeSession Nothing
-    Multi  -> HM.delete sessionList mid
+    Multi  -> HM.delete mid sessionList
 
 busy :: MonadIO m => NodeT u nid k rpkt tp m Bool
 busy = do
@@ -255,7 +255,7 @@ doFeed rpkt sessionHandler = do
   NodeEnv{..} <- ask
   v <- case nodeMode of
          Single -> readTVarIO nodeSession
-         Multi  -> HM.lookup sessionList $ getPacketId rpkt
+         Multi  -> HM.lookup (getPacketId rpkt) sessionList
   case v of
     Just aEnv ->
       runSessionT_ aEnv $ feed $ Just rpkt
@@ -266,7 +266,7 @@ doFeed rpkt sessionHandler = do
       when (sessionMode == MultiAction) $
         case nodeMode of
           Single -> atomically $ writeTVar nodeSession $ Just sEnv
-          Multi  -> HM.insert sessionList sid sEnv
+          Multi  -> HM.insert sid sEnv sessionList
       bracket (return sid) removeSession $ \_ ->
         runSessionT_ sEnv sessionHandler
 
@@ -356,7 +356,7 @@ runCheckSessionState = do
             to <- isTimeout
             when to $ do
               feed Nothing
-              HM.delete sessList (sessionId sessEnv)
+              HM.delete (sessionId sessEnv) sessList
 
 getSessionSize :: MonadIO m => NodeEnv u nid k rpkt -> m Int
 getSessionSize NodeEnv {..} = HM.size sessionList

@@ -39,14 +39,14 @@ import           Control.Monad.Trans.Maybe  (runMaybeT)
 import           Control.Monad.Trans.Reader (ReaderT (..), runReaderT)
 import           Data.Either                (isLeft)
 import           Data.Hashable
+import           Data.IOHashMap             (IOHashMap)
+import qualified Data.IOHashMap             as HM (delete, elems, empty)
+import qualified Data.IOHashMap.STM         as HMS (insert, lookup)
 import           Data.Int                   (Int64)
 import           Metro.Class                (GetPacketId, RecvPacket,
                                              Servable (..), Transport,
                                              TransportConfig)
 import           Metro.Conn                 hiding (close)
-import           Metro.IOHashMap            (IOHashMap, newIOHashMap)
-import qualified Metro.IOHashMap            as HM (delete, elems, insertSTM,
-                                                   lookupSTM)
 import           Metro.Node                 (NodeEnv1, NodeMode (..),
                                              SessionMode (..), getNodeId,
                                              getTimer, initEnv1, runNodeT1,
@@ -104,7 +104,7 @@ initServerEnv
 initServerEnv sc gen mapTransport prepare = do
   serveServ   <- newServer sc
   serveState  <- newTVarIO True
-  nodeEnvList <- newIOHashMap
+  nodeEnvList <- HM.empty
   onNodeLeave <- newTVarIO Nothing
   keepalive   <- newTVarIO 0
   defSessTout <- newTVarIO 300
@@ -218,8 +218,8 @@ handleConn n servID connEnv nid uEnv preprocess sess = do
       . Node.setDefaultSessionTimeout defSessTout) connEnv uEnv nid gen
 
     env1 <- atomically $ do
-      v <- HM.lookupSTM nodeEnvList nid
-      HM.insertSTM nodeEnvList nid env0
+      v <- HMS.lookup nid nodeEnvList
+      HMS.insert nid env0 nodeEnvList
       pure v
 
     mapM_ (`runNodeT1` stopNodeT) env1
@@ -280,7 +280,7 @@ runCheckNodeState alive envList = void . async . forever $ do
               when (now > expiredAt) $ do
                 nid <- getNodeId
                 stopNodeT
-                HM.delete ref nid
+                HM.delete nid ref
 
 serverEnv :: Monad m => ServerT serv u nid k rpkt tp m (ServerEnv serv u nid k rpkt tp)
 serverEnv = ask

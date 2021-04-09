@@ -31,7 +31,6 @@ library:
   - transformers
   - mtl
   - hashable
-  - unordered-containers
   - unix-time
-
   - hslogger
+  - hashmap-io

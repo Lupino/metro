@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: dcb41445e65758018ed9b7846b1058ae7edd3e0b6a89cd5d4dca8da443e87798
+-- hash: 640595568aadeee22929aefadcbaa92e41d539edcd33247077991394d616caef
 
 name:           metro-socket
 version:        0.1.0.0
@@ -45,6 +45,7 @@ library
     , bytestring
     , directory
     , hashable
+    , hashmap-io
     , hslogger
     , metro
     , mtl
