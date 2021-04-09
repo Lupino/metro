@@ -4,12 +4,12 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: b84ac4dbfde3bd7a7a30ffe8417b390f2dd11659fd7709f3e6cc17f8a40a2f56
+-- hash: d3ede880042011eaccb1f30eb1e3ada6e5d8ec271ee5b419dac7563ef99c0a37
 
 name:           hashmap-io
 version:        0.1.0.0
 synopsis:       A Hashmap on io monad.
-description:    Please see the README on GitHub at <https://github.com/Lupino/metro#readme>
+description:    Please see the README on GitHub at <https://github.com/Lupino/metro/tree/master/hashmap-io#readme>
 category:       Data
 homepage:       https://github.com/Lupino/metro#readme
 bug-reports:    https://github.com/Lupino/metro/issues
