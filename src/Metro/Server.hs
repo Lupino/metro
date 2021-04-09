@@ -31,11 +31,10 @@ module Metro.Server
   , handleConn
   ) where
 
-import           Control.Monad              (forM_, forever, mzero, unless,
-                                             void, when)
+import           Control.Monad              (forM_, forever, unless, void, when)
+import           Control.Monad.Cont         (callCC, runContT)
 import           Control.Monad.Reader.Class (MonadReader (ask), asks)
 import           Control.Monad.Trans.Class  (MonadTrans, lift)
-import           Control.Monad.Trans.Maybe  (runMaybeT)
 import           Control.Monad.Trans.Reader (ReaderT (..), runReaderT)
 import           Data.Either                (isLeft)
 import           Data.Hashable
@@ -149,11 +148,11 @@ serveForever preprocess sess = do
   name <- asks serveName
   liftIO $ infoM "Metro.Server" $ name ++ "Server started"
   state <- asks serveState
-  void . runMaybeT . forever $ do
+  (`runContT` pure) $ callCC $ \exit -> forever $ do
     e <- lift $ tryServeOnce preprocess sess
-    when (isLeft e) mzero
+    when (isLeft e) $ exit ()
     alive <- readTVarIO state
-    unless alive mzero
+    unless alive $ exit ()
   liftIO $ infoM "Metro.Server" $ name ++ "Server closed"
 
 tryServeOnce

@@ -49,10 +49,10 @@ module Metro.Node
   , getSessionSize1
   ) where
 
-import           Control.Monad              (forM, forever, mzero, void, when)
+import           Control.Monad              (forM, forever, void, when)
+import           Control.Monad.Cont         (callCC, runContT)
 import           Control.Monad.Reader.Class (MonadReader (ask), asks)
 import           Control.Monad.Trans.Class  (MonadTrans (..))
-import           Control.Monad.Trans.Maybe  (runMaybeT)
 import           Control.Monad.Trans.Reader (ReaderT (..), runReaderT)
 import           Data.Hashable
 import           Data.IOHashMap             (IOHashMap)
@@ -280,10 +280,10 @@ startNodeT_
   => (rpkt -> m Bool) -> SessionT u nid k rpkt tp m () -> NodeT u nid k rpkt tp m ()
 startNodeT_ preprocess sessionHandler = do
   sess <- runCheckSessionState
-  void . runMaybeT . forever $ do
+  (`runContT` pure) $ callCC $ \exit -> forever $ do
     alive <- lift nodeState
     if alive then lift $ tryMainLoop preprocess sessionHandler
-             else mzero
+             else exit ()
 
   cancel sess
   doFeedError
