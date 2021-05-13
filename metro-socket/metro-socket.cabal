@@ -4,10 +4,10 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 640595568aadeee22929aefadcbaa92e41d539edcd33247077991394d616caef
+-- hash: df19f17745c5f5ef862a74ec37e9e31ba9e8fea691fafb2ee5d7eb26d0179ad4
 
 name:           metro-socket
-version:        0.1.0.0
+version:        0.1.0.1
 synopsis:       Socket transport for metro
 description:    Please see the README on GitHub at <https://github.com/Lupino/metro/tree/master/metro-socket#readme>
 category:       Web
