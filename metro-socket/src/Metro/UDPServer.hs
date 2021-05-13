@@ -24,7 +24,7 @@ import           Metro.Server              (ServerT, getServ, handleConn,
                                             serverEnv)
 import           Metro.Session             (SessionT)
 import           Metro.Socket              (bindTo, getDatagramAddr)
-import           Metro.TP.BS               (BSHandle, bsTransportConfig,
+import           Metro.TP.BS               (BSHandle, bsTPConfig,
                                             closeBSHandle, feed, newBSHandle)
 import           Metro.TP.UDPSocket        (UDPSocket, udpSocket_)
 import           Network.Socket            (SockAddr, Socket, addrAddress)
@@ -70,7 +70,7 @@ newTransportConfig
   -> m (TransportConfig UDPSocket)
 newTransportConfig (UDPServer sock handleList) addr h = do
   HM.insert (show addr) h handleList
-  return $ udpSocket_ $ bsTransportConfig h $ flip (sendAllTo sock) addr
+  return $ udpSocket_ $ bsTPConfig h (flip (sendAllTo sock) addr) $ show addr
 
 newClient
   :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Hashable nid, Eq k, Hashable k, GetPacketId k rpkt, RecvPacket rpkt)

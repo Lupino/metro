@@ -24,8 +24,8 @@ data XOR tp = XOR
 
 instance Transport tp => Transport (XOR tp) where
   data TransportConfig (XOR tp) = XORConfig FilePath (TransportConfig tp)
-  newTransport (XORConfig fn config) = do
-    transport <- newTransport config
+  newTP (XORConfig fn config) = do
+    transport <- newTP config
     key <- LB.readFile fn
     sn <- newTVarIO $ LB.cycle key
     rn <- newTVarIO $ LB.cycle key
@@ -35,7 +35,8 @@ instance Transport tp => Transport (XOR tp) where
 
   recvData XOR {..} nbytes = L.with rl $ xorBS rn =<< recvData transport nbytes
   sendData XOR {..} bs = L.with sl $ xorBS sn bs >>= sendData transport
-  closeTransport XOR {..} = closeTransport transport
+  closeTP XOR {..} = closeTP transport
+  getTPName XOR {..} = getTPName transport
 
 xorBS :: TVar LB.ByteString -> B.ByteString -> IO B.ByteString
 xorBS ref bs = atomically $ do

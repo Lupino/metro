@@ -24,9 +24,7 @@ data DebugMode = Raw
 
 instance Transport tp => Transport (Debug tp) where
   data TransportConfig (Debug tp) = DebugConfig String DebugMode (TransportConfig tp)
-  newTransport (DebugConfig h mode config) = do
-    tp <- newTransport config
-    return $ Debug h f tp
+  newTP (DebugConfig h mode config) = Debug h f <$> newTP config
     where f = case mode of
                 Raw -> show
                 Hex -> hex
@@ -38,9 +36,10 @@ instance Transport tp => Transport (Debug tp) where
   sendData (Debug h f tp) bs = do
     debugM "Metro.Transport.Debug" $ h ++ " send " ++ f bs
     sendData tp bs
-  closeTransport (Debug h _ tp) = do
+  closeTP (Debug h _ tp) = do
     debugM "Metro.Transport.Debug" $ h ++ " transport close"
-    closeTransport tp
+    closeTP tp
+  getTPName (Debug _ _ tp) = getTPName tp
 
 debugConfig :: String -> DebugMode -> TransportConfig tp -> TransportConfig (Debug tp)
 debugConfig = DebugConfig

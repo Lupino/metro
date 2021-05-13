@@ -7,7 +7,7 @@ module Metro.TP.TCPSocket
 
 import           Metro.Class               (Transport (..))
 import           Metro.Socket              (connect)
-import           Network.Socket            (Socket, close)
+import           Network.Socket            (Socket, close, getPeerName)
 import           Network.Socket.ByteString (recv, sendAll)
 
 newtype TCPSocket = TCPSocket Socket
@@ -16,11 +16,12 @@ instance Transport TCPSocket where
   data TransportConfig TCPSocket =
       RawSocket Socket
     | SocketUri String
-  newTransport (RawSocket soc) = pure $ TCPSocket soc
-  newTransport (SocketUri h)   = TCPSocket <$> connect h
+  newTP (RawSocket soc) = pure $ TCPSocket soc
+  newTP (SocketUri h)   = TCPSocket <$> connect h
   recvData (TCPSocket soc) = recv soc
   sendData (TCPSocket soc) = sendAll soc
-  closeTransport (TCPSocket soc) = close soc
+  closeTP (TCPSocket soc) = close soc
+  getTPName (TCPSocket soc) = show <$> getPeerName soc
 
 tcpSocket_ :: Socket -> TransportConfig TCPSocket
 tcpSocket_ = RawSocket

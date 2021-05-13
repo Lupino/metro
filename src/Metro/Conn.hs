@@ -67,7 +67,7 @@ initConnEnv config = do
   writeLock <- L.new
   status <- newTVarIO True
   buffer <- newTVarIO B.empty
-  transport <- liftIO $ newTransport config
+  transport <- liftIO $ newTP config
   return ConnEnv{..}
 
 receive :: (MonadUnliftIO m, Transport tp, RecvPacket pkt) => ConnT tp m pkt
@@ -84,7 +84,7 @@ close :: (MonadIO m, Transport tp) => ConnT tp m ()
 close = do
   ConnEnv{..} <- ask
   atomically $ writeTVar status False
-  liftIO $ closeTransport transport
+  liftIO $ closeTP transport
 
 statusTVar :: Monad m => ConnT tp m (TVar Bool)
 statusTVar = status <$> ask

@@ -40,20 +40,21 @@ instance Transport tp => Transport (WebSocket tp) where
   data TransportConfig (WebSocket tp) =
       WSServer (TransportConfig tp)
     | WSClient (TransportConfig tp) String String
-  newTransport (WSServer config) = do
-    transport <- newTransport config
+  newTP (WSServer config) = do
+    transport <- newTP config
     stream <- mkStream transport
     pendingConn <- WS.makePendingConnectionFromStream stream WS.defaultConnectionOptions
     flip WS transport <$> WS.acceptRequest pendingConn
-  newTransport (WSClient config host port) = do
-    transport <- newTransport config
+  newTP (WSClient config host port) = do
+    transport <- newTP config
     stream <- mkStream transport
     flip WS transport <$> WS.newClientConnection stream host port WS.defaultConnectionOptions []
 
   recvData (WS conn _) = wsRecvData conn
   sendData (WS conn _) = wsSendData conn
 
-  closeTransport (WS _ tp) = closeTransport tp
+  closeTP (WS _ tp) = closeTP tp
+  getTPName (WS _ tp) = getTPName tp
 
 
 serverConfig :: Transport tp => TransportConfig tp -> TransportConfig (WebSocket tp)

@@ -18,14 +18,16 @@ instance Transport Socket where
   data TransportConfig Socket =
     TCPTC (TransportConfig TCPSocket)
     | UDPTC (TransportConfig UDPSocket)
-  newTransport (TCPTC c) = TCP <$> newTransport c
-  newTransport (UDPTC c) = UDP <$> newTransport c
+  newTP (TCPTC c) = TCP <$> newTP c
+  newTP (UDPTC c) = UDP <$> newTP c
   recvData (TCP tp) = recvData tp
   recvData (UDP tp) = recvData tp
   sendData (TCP tp) = sendData tp
   sendData (UDP tp) = sendData tp
-  closeTransport (TCP tp) = closeTransport tp
-  closeTransport (UDP tp) = closeTransport tp
+  closeTP (TCP tp) = closeTP tp
+  closeTP (UDP tp) = closeTP tp
+  getTPName (TCP tp) = getTPName tp
+  getTPName (UDP tp) = getTPName tp
 
 socket :: String -> TransportConfig Socket
 socket hostPort =

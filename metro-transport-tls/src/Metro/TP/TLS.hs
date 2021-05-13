@@ -22,7 +22,7 @@ import           Network.TLS           (Context, TLSParams)
 import qualified Network.TLS           as TLS
 
 
-newtype TLS = TLS Context
+data TLS = TLS (IO String) Context
 
 instance Transport TLS where
   data TransportConfig TLS = forall params tp. (Transport tp, TLSParams params) => TLSConfig params (TransportConfig tp)
@@ -31,20 +31,21 @@ instance Transport TLS where
   --
   -- This operation may throw 'TLS.TLSException' on failure.
   --
-  newTransport (TLSConfig params config) = do
-    transport <- newTransport config
+  newTP (TLSConfig params config) = do
+    transport <- newTP config
     bracketOnError (TLS.contextNew (transportBackend transport) params) closeTLS $ \ctx -> do
       TLS.handshake ctx
-      return $ TLS ctx
+      return $ TLS (getTPName transport) ctx
 
-  recvData (TLS ctx) = const $ TLS.recvData ctx
-  sendData (TLS ctx) = TLS.sendData ctx . BL.fromStrict
-  closeTransport (TLS ctx) = closeTLS ctx
+  recvData (TLS _ ctx) = const $ TLS.recvData ctx
+  sendData (TLS _ ctx) = TLS.sendData ctx . BL.fromStrict
+  closeTP (TLS _ ctx) = closeTLS ctx
+  getTPName (TLS tp _)  = tp
 
 transportBackend :: Transport tp => tp -> TLS.Backend
 transportBackend transport = TLS.Backend
   { TLS.backendFlush = return ()
-  , TLS.backendClose = closeTransport transport
+  , TLS.backendClose = closeTP transport
   , TLS.backendSend = sendData transport
   , TLS.backendRecv = recvData'
   }

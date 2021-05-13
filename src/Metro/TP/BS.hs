@@ -2,13 +2,13 @@
 {-# LANGUAGE TypeFamilies    #-}
 
 module Metro.TP.BS
-  ( BSTransport
+  ( BSTP
   , BSHandle
   , newBSHandle
   , newBSHandle_
   , feed
   , closeBSHandle
-  , bsTransportConfig
+  , bsTPConfig
 
   , makePipe
   ) where
@@ -40,15 +40,16 @@ feed (BSHandle size state h) bs = atomically $ do
 closeBSHandle :: MonadIO m => BSHandle -> m ()
 closeBSHandle (BSHandle _ state _) = atomically $ writeTVar state False
 
-data BSTransport = BS
+data BSTP = BS
     { bsHandle :: TVar ByteString
     , bsWriter :: ByteString -> IO ()
     , bsState  :: TVar Bool
+    , bsName   :: String
     }
 
-instance Transport BSTransport where
-  data TransportConfig BSTransport = BSConfig BSHandle (ByteString -> IO ())
-  newTransport (BSConfig (BSHandle _ bsState bsHandle) bsWriter) = do
+instance Transport BSTP where
+  data TransportConfig BSTP = BSConfig BSHandle (ByteString -> IO ()) String
+  newTP (BSConfig (BSHandle _ bsState bsHandle) bsWriter bsName) = do
     atomically $ writeTVar bsState True
     return BS {..}
   recvData BS {..} nbytes = atomically $ do
@@ -63,16 +64,17 @@ instance Transport BSTransport where
   sendData BS {..} bs = do
     status <- readTVarIO bsState
     when status $ bsWriter bs
-  closeTransport BS {..} = atomically $ do
+  closeTP BS {..} = atomically $ do
     writeTVar bsState False
     writeTVar bsHandle empty
+  getTPName BS {..} = pure bsName
 
-bsTransportConfig :: BSHandle -> (ByteString -> IO ()) -> TransportConfig BSTransport
-bsTransportConfig = BSConfig
+bsTPConfig :: BSHandle -> (ByteString -> IO ()) -> String -> TransportConfig BSTP
+bsTPConfig = BSConfig
 
-makePipe :: MonadIO m => m (TransportConfig BSTransport, TransportConfig BSTransport)
-makePipe = do
+makePipe :: MonadIO m => String -> String -> m (TransportConfig BSTP, TransportConfig BSTP)
+makePipe rName wName = do
   rHandle <- newBSHandle empty
   wHandle <- newBSHandle empty
 
-  return (bsTransportConfig rHandle (feed wHandle), bsTransportConfig wHandle (feed rHandle))
+  return (bsTPConfig rHandle (feed wHandle) rName, bsTPConfig wHandle (feed rHandle) wName)

@@ -92,9 +92,9 @@ data Crypto cipher tp = Crypto
 instance (Transport tp, BlockCipher cipher) => Transport (Crypto cipher tp) where
   data TransportConfig (Crypto cipher tp) =
     CryptoConfig (CryptoMethod cipher) cipher (IV cipher) (TransportConfig tp)
-  newTransport (CryptoConfig cryptoMethod cipher iv config) = do
+  newTP (CryptoConfig cryptoMethod cipher iv config) = do
     readBuffer <- newTVarIO empty
-    tp <- newTransport config
+    tp <- newTP config
     readIV  <- newTVarIO iv
     writeIV <- newTVarIO iv
     return Crypto {..}
@@ -124,7 +124,8 @@ instance (Transport tp, BlockCipher cipher) => Transport (Crypto cipher tp) wher
       . encode
       . prepareBlock (encrypt method) cipher iv
       $ makeBlock (blockSize cipher) bs
-  closeTransport (Crypto _ _ _ _ _ tp) = closeTransport tp
+  closeTP (Crypto _ _ _ _ _ tp) = closeTP tp
+  getTPName (Crypto _ _ _ _ _ tp) = getTPName tp
 
 crypto
   :: BlockCipher cipher

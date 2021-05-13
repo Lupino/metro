@@ -29,10 +29,11 @@ instance Exception TransportError
 
 class Transport transport where
   data TransportConfig transport
-  newTransport   :: TransportConfig transport -> IO transport
-  recvData       :: transport -> Int -> IO ByteString
-  sendData       :: transport -> ByteString -> IO ()
-  closeTransport :: transport -> IO ()
+  newTP     :: TransportConfig transport -> IO transport
+  recvData  :: transport -> Int -> IO ByteString
+  sendData  :: transport -> ByteString -> IO ()
+  closeTP   :: transport -> IO ()
+  getTPName :: transport -> IO String
 
 class Servable serv where
   data ServerConfig serv

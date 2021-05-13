@@ -9,21 +9,21 @@ import           Control.Monad             (forever)
 import           Data.ByteString           (empty)
 import           Metro.Class               (Transport (..))
 import           Metro.Socket              (bindTo, getDatagramAddr)
-import           Metro.TP.BS               (BSTransport, bsTransportConfig,
+import           Metro.TP.BS               (BSTP, bsTPConfig,
                                             feed, newBSHandle)
 import           Network.Socket            (addrAddress)
 import           Network.Socket.ByteString (recvFrom, sendAllTo)
 import           System.Log.Logger         (errorM)
 import           UnliftIO                  (Async, async, cancel)
 
-data UDPSocket = UDPSocket (Maybe (Async ())) BSTransport
+data UDPSocket = UDPSocket (Maybe (Async ())) BSTP
 
 instance Transport UDPSocket where
   data TransportConfig UDPSocket =
-    RawSocket (TransportConfig BSTransport)
+    RawSocket (TransportConfig BSTP)
     | SocketUri String
-  newTransport (RawSocket h)   = UDPSocket Nothing <$> newTransport h
-  newTransport (SocketUri h)   = do
+  newTP (RawSocket h)   = UDPSocket Nothing <$> newTP h
+  newTP (SocketUri h)   = do
     addrInfo <- getDatagramAddr h
     case addrInfo of
       Nothing -> error $ "Connect UDP Server " ++ h ++ " failed"
@@ -37,15 +37,16 @@ instance Transport UDPSocket where
           if addr0 == addr1 then feed bsHandle bs
           else errorM "Metro.UDP" $ "Receive unkonw address " ++ show addr1
 
-        tp <- newTransport $ bsTransportConfig bsHandle $ flip (sendAllTo sock) addr0
+        tp <- newTP $ bsTPConfig bsHandle (flip (sendAllTo sock) addr0) $ show addr0
         return $ UDPSocket (Just io) tp
 
   recvData (UDPSocket _ soc) = recvData soc
   sendData (UDPSocket _ soc) = sendData soc
-  closeTransport (UDPSocket io soc) = mapM_ cancel io >> closeTransport soc
+  closeTP (UDPSocket io soc) = mapM_ cancel io >> closeTP soc
+  getTPName (UDPSocket _ soc) = getTPName soc
 
 udpSocket :: String -> TransportConfig UDPSocket
 udpSocket = SocketUri
 
-udpSocket_ :: TransportConfig BSTransport -> TransportConfig UDPSocket
+udpSocket_ :: TransportConfig BSTP -> TransportConfig UDPSocket
 udpSocket_ = RawSocket
