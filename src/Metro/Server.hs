@@ -210,7 +210,9 @@ handleConn
 handleConn n servID connEnv nid uEnv preprocess sess = do
     ServerEnv {..} <- ask
 
-    liftIO $ infoM "Metro.Server" (serveName ++ n ++ ": " ++ show nid ++ " connected")
+    connName <- liftIO $ getConnEnvName connEnv
+
+    liftIO $ infoM "Metro.Server" (serveName ++ n ++ ": " ++ show nid ++ "@" ++ connName ++ " connected")
     env0 <- initEnv1
       (Node.setNodeMode nodeMode
       . Node.setSessionMode sessionMode
