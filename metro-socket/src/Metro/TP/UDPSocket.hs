@@ -1,4 +1,5 @@
-{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeFamilies      #-}
 module Metro.TP.UDPSocket
   ( UDPSocket
   , udpSocket
@@ -6,12 +7,12 @@ module Metro.TP.UDPSocket
   ) where
 
 import           Control.Monad             (forever)
-import           Data.ByteString           (empty)
+import           Data.ByteString           (ByteString, empty)
+import qualified Data.ByteString           as B (drop, take)
 import           Metro.Class               (Transport (..))
 import           Metro.Socket              (bindTo, getDatagramAddr)
-import           Metro.TP.BS               (BSTP, bsTPConfig,
-                                            feed, newBSHandle)
-import           Network.Socket            (addrAddress)
+import           Metro.TP.BS               (BSTP, bsTPConfig, feed, newBSHandle)
+import           Network.Socket            (SockAddr, Socket, addrAddress)
 import           Network.Socket.ByteString (recvFrom, sendAllTo)
 import           System.Log.Logger         (errorM)
 import           UnliftIO                  (Async, async, cancel)
@@ -33,17 +34,23 @@ instance Transport UDPSocket where
         sock <- bindTo "udp://0.0.0.0:0"
 
         io <- async $ forever $ do
-          (bs, addr1) <- recvFrom sock 4194304
+          (bs, addr1) <- recvFrom sock 65535
           if addr0 == addr1 then feed bsHandle bs
           else errorM "Metro.UDP" $ "Receive unkonw address " ++ show addr1
 
-        tp <- newTP $ bsTPConfig bsHandle (flip (sendAllTo sock) addr0) $ show addr0
+        tp <- newTP $ bsTPConfig bsHandle (doSendAll sock addr0) $ show addr0
         return $ UDPSocket (Just io) tp
 
   recvData (UDPSocket _ soc) = recvData soc
   sendData (UDPSocket _ soc) = sendData soc
   closeTP (UDPSocket io soc) = mapM_ cancel io >> closeTP soc
   getTPName (UDPSocket _ soc) = getTPName soc
+
+doSendAll :: Socket -> SockAddr -> ByteString -> IO ()
+doSendAll _ _ "" = return ()
+doSendAll soc addr bs = do
+  sendAllTo soc (B.take 8192 bs) addr
+  doSendAll soc addr (B.drop 8192 bs)
 
 udpSocket :: String -> TransportConfig UDPSocket
 udpSocket = SocketUri

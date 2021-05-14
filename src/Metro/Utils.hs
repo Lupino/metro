@@ -50,7 +50,7 @@ recvEnough buffer tp nbytes = do
   where readBuf :: Int -> IO ByteString
         readBuf 0  = return B.empty
         readBuf nb = do
-          buf <- recvData tp $ max 4096 nb -- 4k
+          buf <- recvData tp $ max 8192 nb -- 8k
           when (B.null buf) $ throwIO TransportClosed
           if B.length buf >= nb then return buf
                                 else do
