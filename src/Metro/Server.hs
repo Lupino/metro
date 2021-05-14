@@ -58,18 +58,18 @@ import           UnliftIO
 import           UnliftIO.Concurrent        (threadDelay)
 
 data ServerEnv serv u nid k rpkt tp = ServerEnv
-    { serveServ    :: serv
-    , serveState   :: TVar Bool
-    , nodeEnvList  :: IOHashMap nid (NodeEnv1 u nid k rpkt tp)
-    , prepare      :: SID serv -> ConnEnv tp -> IO (Maybe (nid, u))
-    , gen          :: IO k
-    , keepalive    :: TVar Int64 -- client keepalive seconds
-    , defSessTout  :: TVar Int64 -- session timeout seconds
-    , nodeMode     :: NodeMode
-    , sessionMode  :: SessionMode
-    , serveName    :: String
-    , onNodeLeave  :: TVar (Maybe (nid -> u -> IO ()))
-    , mapTransport :: TransportConfig (STP serv) -> TransportConfig tp
+    { serveServ   :: serv
+    , serveState  :: TVar Bool
+    , nodeEnvList :: IOHashMap nid (NodeEnv1 u nid k rpkt tp)
+    , prepare     :: SID serv -> ConnEnv tp -> IO (Maybe (nid, u))
+    , gen         :: IO k
+    , keepalive   :: TVar Int64 -- client keepalive seconds
+    , defSessTout :: TVar Int64 -- session timeout seconds
+    , nodeMode    :: NodeMode
+    , sessionMode :: SessionMode
+    , serveName   :: String
+    , onNodeLeave :: TVar (Maybe (nid -> u -> IO ()))
+    , mapTP       :: TransportConfig (STP serv) -> TransportConfig tp
     }
 
 
@@ -100,7 +100,7 @@ initServerEnv
   -> (TransportConfig (STP serv) -> TransportConfig tp)
   -> (SID serv -> ConnEnv tp -> IO (Maybe (nid, u)))
   -> m (ServerEnv serv u nid k rpkt tp)
-initServerEnv sc gen mapTransport prepare = do
+initServerEnv sc gen mapTP prepare = do
   serveServ   <- newServer sc
   serveState  <- newTVarIO True
   nodeEnvList <- HM.empty
@@ -188,7 +188,7 @@ doServeOnce
 doServeOnce _ _ Nothing = return ()
 doServeOnce preprocess sess (Just (servID, stp)) = do
   ServerEnv {..} <- ask
-  connEnv <- initConnEnv $ mapTransport stp
+  connEnv <- initConnEnv $ mapTP stp
   mnid <- liftIO $ prepare servID connEnv
   forM_ mnid $ \(nid, uEnv) -> do
     (_, io) <- handleConn "Client" servID connEnv nid uEnv preprocess sess
