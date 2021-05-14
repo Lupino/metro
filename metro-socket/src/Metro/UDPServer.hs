@@ -7,30 +7,19 @@
 module Metro.UDPServer
   ( UDPServer
   , udpServer
-  , newClient
   ) where
 
 import           Control.Monad             (void)
-import           Data.ByteString           (empty)
-import           Data.Hashable
 import           Data.IOHashMap            (IOHashMap)
 import qualified Data.IOHashMap            as HM (delete, empty, insert, lookup)
-import           Metro.Class               (GetPacketId, RecvPacket,
-                                            Servable (..), Transport,
-                                            TransportConfig)
-import           Metro.Conn
-import           Metro.Node                (NodeEnv1)
-import           Metro.Server              (ServerT, getServ, handleConn,
-                                            serverEnv)
-import           Metro.Session             (SessionT)
-import           Metro.Socket              (bindTo, getDatagramAddr)
-import           Metro.TP.BS               (BSHandle, bsTPConfig,
-                                            closeBSHandle, feed, newBSHandle)
+import           Metro.Class               (Servable (..), TransportConfig)
+import           Metro.Socket              (bindTo)
+import           Metro.TP.BS               (BSHandle, bsTPConfig, closeBSHandle,
+                                            feed, newBSHandle)
 import           Metro.TP.UDPSocket        (UDPSocket, udpSocket_)
-import           Network.Socket            (SockAddr, Socket, addrAddress)
+import           Network.Socket            (SockAddr, Socket)
 import qualified Network.Socket            as Socket (close)
 import           Network.Socket.ByteString (recvFrom, sendAllTo)
-import           System.Log.Logger         (errorM)
 import           UnliftIO
 
 data UDPServer = UDPServer Socket (IOHashMap String BSHandle)
@@ -71,25 +60,3 @@ newTransportConfig
 newTransportConfig (UDPServer sock handleList) addr h = do
   HM.insert (show addr) h handleList
   return $ udpSocket_ $ bsTPConfig h (flip (sendAllTo sock) addr) $ show addr
-
-newClient
-  :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Hashable nid, Eq k, Hashable k, GetPacketId k rpkt, RecvPacket rpkt)
-  => (TransportConfig UDPSocket -> TransportConfig tp)
-  -> String
-  -> nid
-  -> u
-  -> (rpkt -> m Bool)
-  -> SessionT u nid k rpkt tp m ()
-  -> ServerT UDPServer u nid k rpkt tp m (Maybe (NodeEnv1 u nid k rpkt tp))
-newClient mk hostPort nid uEnv preprocess sess = do
-  addr <- liftIO $ getDatagramAddr hostPort
-  case addr of
-    Nothing -> do
-      liftIO $ errorM "Metro.UDP" $ "Connect UDP Server " ++ hostPort ++ " failed"
-      return Nothing
-    Just addr0 -> do
-      us <- getServ <$> serverEnv
-      h <- newBSHandle empty
-      config <- mk <$> newTransportConfig us (addrAddress addr0) h
-      connEnv <- initConnEnv config
-      Just . fst <$> handleConn "Server" (addrAddress addr0) connEnv nid uEnv preprocess sess
