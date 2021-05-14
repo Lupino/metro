@@ -108,7 +108,7 @@ findWithDefault v = readIOHashMap . HM.findWithDefault v
 -- | /O(log n)/ Return the value to which the specified key is mapped.
 -- Calls 'error' if this map contains no mapping for the key.
 (!) :: (MonadIO m, Eq k, Hashable k) => IOHashMap k v -> k -> m v
-(!) m k = readIOHashMap (flip (HM.!) k) m
+(!) m k = readIOHashMap (HM.! k) m
 
 infixl 9 !
 
