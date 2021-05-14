@@ -226,7 +226,10 @@ tryMainLoop
 tryMainLoop preprocess sessionHandler = do
   r <- tryAny $ mainLoop preprocess sessionHandler
   case r of
-    Left err -> liftIO $ errorM "Metro.Node" $ "MainLoop Error: " ++ show err
+    Left err ->
+      case show err of
+        "TransportClosed" -> stopNodeT
+        errS -> liftIO $ errorM "Metro.Node" $ "MainLoop Error: " ++ errS
     Right _  -> pure ()
 
 mainLoop
