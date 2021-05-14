@@ -226,8 +226,8 @@ tryMainLoop
 tryMainLoop preprocess sessionHandler = do
   r <- tryAny $ mainLoop preprocess sessionHandler
   case r of
-    Left _  -> stopNodeT
-    Right _ -> pure ()
+    Left err -> liftIO $ errorM "Metro.Node" $ "MainLoop Error: " ++ show err
+    Right _  -> pure ()
 
 mainLoop
   :: (MonadUnliftIO m, Transport tp, RecvPacket rpkt, GetPacketId k rpkt, Eq k, Hashable k)
