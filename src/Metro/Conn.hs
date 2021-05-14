@@ -16,9 +16,11 @@ module Metro.Conn
   , send
   , close
   , statusTVar
+  , getConnName
+  , getConnEnvName
   ) where
 
-import           Control.Monad.Reader.Class (MonadReader (ask))
+import           Control.Monad.Reader.Class (MonadReader (ask), asks)
 import           Control.Monad.Trans.Class  (MonadTrans, lift)
 import           Control.Monad.Trans.Reader (ReaderT (..), runReaderT)
 import           Data.ByteString            (ByteString)
@@ -35,6 +37,9 @@ data ConnEnv tp = ConnEnv
     , buffer    :: TVar ByteString
     , status    :: TVar Bool
     }
+
+getConnEnvName :: Transport tp => ConnEnv tp -> IO String
+getConnEnvName = getTPName . transport
 
 newtype ConnT tp m a = ConnT { unConnT :: ReaderT (ConnEnv tp) m a }
   deriving
@@ -88,3 +93,6 @@ close = do
 
 statusTVar :: Monad m => ConnT tp m (TVar Bool)
 statusTVar = status <$> ask
+
+getConnName :: (MonadIO m, Transport tp) => ConnT tp m String
+getConnName = liftIO =<< asks getConnEnvName
