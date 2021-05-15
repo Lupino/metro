@@ -35,6 +35,7 @@ resolver: lts-17.11
 packages:
 - .
 - metro-socket
+- metro-serial
 - metro-example
 - metro-transport-crypto
 - metro-transport-xor
@@ -44,7 +45,8 @@ packages:
 # Dependency packages to be pulled from upstream that are not in the resolver
 # using the same syntax as the packages field.
 # (e.g., acme-missiles-0.3)
-extra-deps: []
+extra-deps:
+- serialport-0.5.2@sha256:7bf562bfb75cc4199b53c95ba4235fd4627a9b818191cd6d3f12404b90e6a10a,1703
 
 # Override default flag values for local packages and extra-deps
 # flags: {}
