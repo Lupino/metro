@@ -105,7 +105,7 @@ initServerEnv sc gen mapTP prepare = do
   serveState  <- newTVarIO True
   nodeEnvList <- HM.empty
   onNodeLeave <- newTVarIO Nothing
-  keepalive   <- newTVarIO 0
+  keepalive   <- newTVarIO 300
   defSessTout <- newTVarIO 300
   pure ServerEnv
     { nodeMode    = Multi
@@ -272,10 +272,13 @@ runCheckNodeState
   :: (MonadUnliftIO m, Eq nid, Hashable nid, Transport tp)
   => TVar Int64 -> IOHashMap nid (NodeEnv1 u nid k rpkt tp) -> m ()
 runCheckNodeState alive envList = void . async . forever $ do
-  t <- readTVarIO alive
-  when (t > 0) $ do
-    threadDelay $ fromIntegral t * 1000 * 1000
-    mapM_ (checkAlive envList) =<< HM.elems envList
+  t <- atomically $ do
+    tt <- readTVar alive
+    if tt == 0 then retrySTM
+               else return tt
+
+  threadDelay $ fromIntegral t * 1000 * 1000
+  mapM_ (checkAlive envList) =<< HM.elems envList
 
   where checkAlive
           :: (MonadUnliftIO m, Eq nid, Hashable nid, Transport tp)
