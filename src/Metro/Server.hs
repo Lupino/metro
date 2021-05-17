@@ -233,9 +233,16 @@ handleConn n servID connEnv nid uEnv preprocess sess = do
       case nodeLeave of
         Nothing -> pure ()
         Just f  -> liftIO $ f nid uEnv
-      liftIO $ infoM "Metro.Server" (serveName ++ n ++ ": " ++ show nid ++ " disconnected")
+      liftIO $ infoM "Metro.Server" (serveName ++ n ++ ": " ++ showNid nid ++ " disconnected")
 
     return (env0, io)
+
+showNid :: Show a => a -> String
+showNid = r . show
+  where r :: String -> String
+        r ('"':xs)  = take (length xs - 1) xs
+        r ('\'':xs) = take (length xs - 1) xs
+        r xs        = xs
 
 startServer
   :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Hashable nid, Eq k, Hashable k, GetPacketId k rpkt, RecvPacket rpkt, Servable serv)
