@@ -4,6 +4,8 @@ module Metro.TP.UDPSocket
   ( UDPSocket
   , udpSocket
   , udpSocket_
+  , doSendAll
+  , recvFrom
   ) where
 
 import           Control.Monad             (forever)
