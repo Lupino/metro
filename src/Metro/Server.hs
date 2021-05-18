@@ -61,7 +61,7 @@ data ServerEnv serv u nid k rpkt tp = ServerEnv
     { serveServ   :: serv
     , serveState  :: TVar Bool
     , nodeEnvList :: IOHashMap nid (NodeEnv1 u nid k rpkt tp)
-    , prepare     :: SID serv -> ConnEnv tp -> IO (Maybe (nid, u))
+    , prepare     :: serv -> SID serv -> ConnEnv tp -> IO (Maybe (nid, u))
     , gen         :: IO k
     , keepalive   :: TVar Int64 -- client keepalive seconds
     , defSessTout :: TVar Int64 -- session timeout seconds
@@ -98,7 +98,7 @@ initServerEnv
   :: (MonadIO m, Servable serv)
   => ServerConfig serv -> IO k
   -> (TransportConfig (STP serv) -> TransportConfig tp)
-  -> (SID serv -> ConnEnv tp -> IO (Maybe (nid, u)))
+  -> (serv -> SID serv -> ConnEnv tp -> IO (Maybe (nid, u)))
   -> m (ServerEnv serv u nid k rpkt tp)
 initServerEnv sc gen mapTP prepare = do
   serveServ   <- newServer sc
@@ -189,7 +189,7 @@ doServeOnce _ _ Nothing = return ()
 doServeOnce preprocess sess (Just (servID, stp)) = do
   ServerEnv {..} <- ask
   connEnv <- initConnEnv $ mapTP stp
-  mnid <- liftIO $ prepare servID connEnv
+  mnid <- liftIO $ prepare serveServ servID connEnv
   forM_ mnid $ \(nid, uEnv) -> do
     (_, io) <- handleConn "Client" servID connEnv nid uEnv preprocess sess
     r <- waitCatch io

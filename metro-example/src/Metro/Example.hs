@@ -67,7 +67,7 @@ newMetroServer
   -> IO (ExampleEnv serv tp)
 newMetroServer mk config mapEnv = do
   gen <- sessionGen
-  sEnv <- fmap mapEnv . initServerEnv config gen mk $ \_ connEnv -> do
+  sEnv <- fmap mapEnv . initServerEnv config gen mk $ \_ _ connEnv -> do
     cmd <- packetCmd <$> runConnT connEnv receive
     case cmd of
       Data nid -> return $ Just (nid, ())
