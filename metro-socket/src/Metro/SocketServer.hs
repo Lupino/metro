@@ -5,7 +5,7 @@
 {-# LANGUAGE UndecidableInstances  #-}
 
 module Metro.SocketServer
-  ( SocketServer
+  ( SocketServer (..)
   , socketServer
   , SSSID (..)
   ) where
