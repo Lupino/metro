@@ -7,6 +7,7 @@
 module Metro.UDPServer
   ( UDPServer
   , udpServer
+  , getSocket
   ) where
 
 
@@ -105,3 +106,6 @@ newTransportConfig
 newTransportConfig (UDPServer _ sock handleList) addr h = do
   HM.insert (show addr) h handleList
   return $ udpSocket_ $ bsTPConfig h (doSendAll sock addr) $ show addr
+
+getSocket :: UDPServer -> Socket
+getSocket (UDPServer _ sock _) = sock
