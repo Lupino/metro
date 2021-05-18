@@ -89,6 +89,7 @@ instance Servable UDPServer where
           config <- newTransportConfig us addr h
           done $ Just (addr, config)
           closeBSHandle h
+          HM.delete (show addr) handleList
 
   onConnEnter _ _ = return ()
   onConnLeave (UDPServer _ _ handleList) addr = HM.delete (show addr) handleList
