@@ -1,10 +1,10 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.33.0.
+-- This file has been generated from package.yaml by hpack version 0.34.4.
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 091d5108d142d16f7ceef8cc4670d202f181d28a52188b006c87fab5ec895f24
+-- hash: 478871a7060ca0eb3396818991214b55dcc4ba92cd9eeb7e6297d9439c2cd61e
 
 name:           metro
 version:        0.1.0.5
@@ -47,9 +47,8 @@ library
       base >=4.7 && <5
     , binary
     , bytestring
-    , hashable
-    , hashmap-io
     , hslogger
+    , map-io
     , mtl
     , transformers
     , unix-time

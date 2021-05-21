@@ -30,7 +30,6 @@ library:
   - unliftio
   - transformers
   - mtl
-  - hashable
   - unix-time
   - hslogger
-  - hashmap-io
+  - map-io

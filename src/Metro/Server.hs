@@ -37,10 +37,9 @@ import           Control.Monad.Reader.Class (MonadReader (ask), asks)
 import           Control.Monad.Trans.Class  (MonadTrans, lift)
 import           Control.Monad.Trans.Reader (ReaderT (..), runReaderT)
 import           Data.Either                (isLeft)
-import           Data.Hashable
-import           Data.IOHashMap             (IOHashMap)
-import qualified Data.IOHashMap             as HM (delete, elems, empty)
-import qualified Data.IOHashMap.STM         as HMS (insert, lookup)
+import           Data.IOMap                 (IOMap)
+import qualified Data.IOMap                 as Map (delete, elems, empty)
+import qualified Data.IOMap.STM             as MapS (insert, lookup)
 import           Data.Int                   (Int64)
 import           Metro.Class                (GetPacketId, RecvPacket,
                                              Servable (..), Transport,
@@ -60,7 +59,7 @@ import           UnliftIO.Concurrent        (threadDelay)
 data ServerEnv serv u nid k rpkt tp = ServerEnv
     { serveServ   :: serv
     , serveState  :: TVar Bool
-    , nodeEnvList :: IOHashMap nid (NodeEnv1 u nid k rpkt tp)
+    , nodeEnvList :: IOMap nid (NodeEnv1 u nid k rpkt tp)
     , prepare     :: serv -> SID serv -> ConnEnv tp -> IO (Maybe (nid, u))
     , gen         :: IO k
     , keepalive   :: TVar Int64 -- client keepalive seconds
@@ -103,7 +102,7 @@ initServerEnv
 initServerEnv sc gen mapTP prepare = do
   serveServ   <- newServer sc
   serveState  <- newTVarIO True
-  nodeEnvList <- HM.empty
+  nodeEnvList <- Map.empty
   onNodeLeave <- newTVarIO Nothing
   keepalive   <- newTVarIO 300
   defSessTout <- newTVarIO 300
@@ -140,7 +139,7 @@ setOnNodeLeave :: MonadIO m => ServerEnv serv u nid k rpkt tp -> (nid -> u -> IO
 setOnNodeLeave sEnv = atomically . writeTVar (onNodeLeave sEnv) . Just
 
 serveForever
-  :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Hashable nid, Eq k, Hashable k, GetPacketId k rpkt, RecvPacket rpkt, Servable serv)
+  :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Ord nid, Eq k, Ord k, GetPacketId k rpkt, RecvPacket rpkt, Servable serv)
   => (rpkt -> m Bool)
   -> SessionT u nid k rpkt tp m ()
   -> ServerT serv u nid k rpkt tp m ()
@@ -156,7 +155,7 @@ serveForever preprocess sess = do
   liftIO $ infoM "Metro.Server" $ name ++ "Server closed"
 
 tryServeOnce
-  :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Hashable nid, Eq k, Hashable k, GetPacketId k rpkt, RecvPacket rpkt, Servable serv)
+  :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Ord nid, Eq k, Ord k, GetPacketId k rpkt, RecvPacket rpkt, Servable serv)
   => (rpkt -> m Bool)
   -> SessionT u nid k rpkt tp m ()
   -> ServerT serv u nid k rpkt tp m (Either SomeException ())
@@ -165,8 +164,8 @@ tryServeOnce preprocess sess = tryAny (serveOnce preprocess sess)
 serveOnce
   :: ( MonadUnliftIO m
      , Transport tp
-     , Show nid, Eq nid, Hashable nid
-     , Eq k, Hashable k, GetPacketId k rpkt, RecvPacket rpkt
+     , Show nid, Eq nid, Ord nid
+     , Eq k, Ord k, GetPacketId k rpkt, RecvPacket rpkt
      , Servable serv)
   => (rpkt -> m Bool)
   -> SessionT u nid k rpkt tp m ()
@@ -178,8 +177,8 @@ serveOnce preprocess sess = do
 doServeOnce
   :: ( MonadUnliftIO m
      , Transport tp
-     , Show nid, Eq nid, Hashable nid
-     , Eq k, Hashable k, GetPacketId k rpkt, RecvPacket rpkt
+     , Show nid, Eq nid, Ord nid
+     , Eq k, Ord k, GetPacketId k rpkt, RecvPacket rpkt
      , Servable serv)
   => (rpkt -> m Bool)
   -> SessionT u nid k rpkt tp m ()
@@ -198,7 +197,7 @@ doServeOnce preprocess sess (Just (servID, stp)) = do
       Right _ -> return ()
 
 handleConn
-  :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Hashable nid, Eq k, Hashable k, GetPacketId k rpkt, RecvPacket rpkt, Servable serv)
+  :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Ord nid, Eq k, Ord k, GetPacketId k rpkt, RecvPacket rpkt, Servable serv)
   => String
   -> SID serv
   -> ConnEnv tp
@@ -219,8 +218,8 @@ handleConn n servID connEnv nid uEnv preprocess sess = do
       . Node.setDefaultSessionTimeout defSessTout) connEnv uEnv nid gen
 
     env1 <- atomically $ do
-      v <- HMS.lookup nid nodeEnvList
-      HMS.insert nid env0 nodeEnvList
+      v <- MapS.lookup nid nodeEnvList
+      MapS.insert nid env0 nodeEnvList
       pure v
 
     mapM_ (`runNodeT1` stopNodeT) env1
@@ -245,14 +244,14 @@ showNid = r . show
         r xs        = xs
 
 startServer
-  :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Hashable nid, Eq k, Hashable k, GetPacketId k rpkt, RecvPacket rpkt, Servable serv)
+  :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Ord nid, Eq k, Ord k, GetPacketId k rpkt, RecvPacket rpkt, Servable serv)
   => ServerEnv serv u nid k rpkt tp
   -> SessionT u nid k rpkt tp m ()
   -> m ()
 startServer sEnv = startServer_ sEnv (const $ return True)
 
 startServer_
-  :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Hashable nid, Eq k, Hashable k, GetPacketId k rpkt, RecvPacket rpkt, Servable serv)
+  :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Ord nid, Eq k, Ord k, GetPacketId k rpkt, RecvPacket rpkt, Servable serv)
   => ServerEnv serv u nid k rpkt tp
   -> (rpkt -> m Bool)
   -> SessionT u nid k rpkt tp m ()
@@ -269,8 +268,8 @@ stopServerT = do
   liftIO $ servClose serveServ
 
 runCheckNodeState
-  :: (MonadUnliftIO m, Eq nid, Hashable nid, Transport tp)
-  => TVar Int64 -> IOHashMap nid (NodeEnv1 u nid k rpkt tp) -> m ()
+  :: (MonadUnliftIO m, Eq nid, Ord nid, Transport tp)
+  => TVar Int64 -> IOMap nid (NodeEnv1 u nid k rpkt tp) -> m ()
 runCheckNodeState alive envList = void . async . forever $ do
   t <- atomically $ do
     tt <- readTVar alive
@@ -278,11 +277,11 @@ runCheckNodeState alive envList = void . async . forever $ do
                else return tt
 
   threadDelay $ fromIntegral t * 1000 * 1000
-  mapM_ (checkAlive envList) =<< HM.elems envList
+  mapM_ (checkAlive envList) =<< Map.elems envList
 
   where checkAlive
-          :: (MonadUnliftIO m, Eq nid, Hashable nid, Transport tp)
-          => IOHashMap nid (NodeEnv1 u nid k rpkt tp)
+          :: (MonadUnliftIO m, Eq nid, Ord nid, Transport tp)
+          => IOMap nid (NodeEnv1 u nid k rpkt tp)
           -> NodeEnv1 u nid k rpkt tp -> m ()
         checkAlive ref env1 = runNodeT1 env1 $ do
               t <- readTVarIO alive
@@ -291,12 +290,12 @@ runCheckNodeState alive envList = void . async . forever $ do
               when (now > expiredAt) $ do
                 nid <- getNodeId
                 stopNodeT
-                HM.delete nid ref
+                Map.delete nid ref
 
 serverEnv :: Monad m => ServerT serv u nid k rpkt tp m (ServerEnv serv u nid k rpkt tp)
 serverEnv = ask
 
-getNodeEnvList :: ServerEnv serv u nid k rpkt tp -> IOHashMap nid (NodeEnv1 u nid k rpkt tp)
+getNodeEnvList :: ServerEnv serv u nid k rpkt tp -> IOMap nid (NodeEnv1 u nid k rpkt tp)
 getNodeEnvList = nodeEnvList
 
 getServ :: ServerEnv serv u nid k rpkt tp -> serv

@@ -12,8 +12,8 @@ module Metro.UDPServer
 
 
 import           Control.Monad       (forever, unless, void)
-import           Data.IOHashMap      (IOHashMap)
-import qualified Data.IOHashMap      as HM (delete, empty, insert, lookup)
+import           Data.IOMap          (IOMap)
+import qualified Data.IOMap          as Map (delete, empty, insert, lookup)
 import           Data.String         (fromString)
 import           Metro.Class         (Servable (..), TransportConfig)
 import           Metro.Socket        (bindTo, getDatagramAddr)
@@ -57,7 +57,7 @@ parseQuery ('m':'e':'s':'s':'a':'g':'e':'=':xs) =
   nextParseQuery xs setMessage
 parseQuery (_:xs) = parseQuery xs
 
-data UDPServer = UDPServer (Async ()) Socket (IOHashMap String BSHandle)
+data UDPServer = UDPServer (Async ()) Socket (IOMap SockAddr BSHandle)
 
 instance Servable UDPServer where
   data ServerConfig UDPServer = UDPConfig String
@@ -75,12 +75,12 @@ instance Servable UDPServer where
             doSendAll sock (addrAddress addrInfo0) (fromString $ message query)
             threadDelay (keepalive query * 1000000)
 
-    UDPServer io sock <$> HM.empty
+    UDPServer io sock <$> Map.empty
     where query = parseQuery hostPort $ Query "" 600 "message"
   servOnce us@(UDPServer _ serv handleList) done = do
     (bs, addr) <- liftIO $ recvFrom serv 65535
 
-    bsHandle <- HM.lookup (show addr) handleList
+    bsHandle <- Map.lookup addr handleList
     case bsHandle of
       Just h  -> feed h bs
       Nothing ->
@@ -89,10 +89,10 @@ instance Servable UDPServer where
           config <- newTransportConfig us addr h
           done $ Just (addr, config)
           closeBSHandle h
-          HM.delete (show addr) handleList
+          Map.delete addr handleList
 
   onConnEnter _ _ = return ()
-  onConnLeave (UDPServer _ _ handleList) addr = HM.delete (show addr) handleList
+  onConnLeave (UDPServer _ _ handleList) addr = Map.delete addr handleList
   servClose (UDPServer io serv _) = cancel io >> liftIO (Socket.close serv)
 
 udpServer :: String -> ServerConfig UDPServer
@@ -105,7 +105,7 @@ newTransportConfig
   -> BSHandle
   -> m (TransportConfig UDPSocket)
 newTransportConfig (UDPServer _ sock handleList) addr h = do
-  HM.insert (show addr) h handleList
+  Map.insert addr h handleList
   return $ udpSocket_ $ bsTPConfig h (doSendAll sock addr) $ show addr
 
 getSocket :: UDPServer -> Socket

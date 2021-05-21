@@ -8,8 +8,8 @@ import           Data.Aeson                      (object, (.=))
 import           Data.ByteString                 (ByteString)
 import           Data.ByteString.Lazy            (fromStrict, toStrict)
 import           Data.Default.Class              (def)
-import           Data.IOHashMap                  (IOHashMap)
-import qualified Data.IOHashMap                  as HM (lookup)
+import           Data.IOMap                      (IOMap)
+import qualified Data.IOMap                      as Map (lookup)
 import           Data.Streaming.Network.Internal (HostPreference (Host))
 import           Metro                           (Transport)
 import           Metro.Example.Device            (DeviceEnv, request,
@@ -22,12 +22,12 @@ import           Web.Scotty                      (ActionM, ScottyM, body, get,
                                                   json, param, post, put, raw,
                                                   scottyOpts, settings, status)
 
-startWeb :: (Transport tp) => IOHashMap ByteString (DeviceEnv tp) -> String -> Int -> IO ()
+startWeb :: (Transport tp) => IOMap ByteString (DeviceEnv tp) -> String -> Int -> IO ()
 startWeb devicesEnv host port =
   scottyOpts opts $ application devicesEnv
   where opts = def {settings = setPort port $ setHost (Host host) (settings def)}
 
-application :: (Transport tp) => IOHashMap ByteString (DeviceEnv tp) -> ScottyM ()
+application :: (Transport tp) => IOMap ByteString (DeviceEnv tp) -> ScottyM ()
 application devicesEnv = do
   post "/api/run/:uuid/" $ requestHandler devicesEnv
   get "/api/download/:uuid/" $ downloadHandler devicesEnv
@@ -35,11 +35,11 @@ application devicesEnv = do
   put "/api/append/:uuid/" $ uploadHandler Append devicesEnv
   post "/api/end/:uuid/" $ endHandler devicesEnv
 
-requestHandler :: (Transport tp) => IOHashMap ByteString (DeviceEnv tp) -> ActionM ()
+requestHandler :: (Transport tp) => IOMap ByteString (DeviceEnv tp) -> ActionM ()
 requestHandler devicesEnv = do
   ip <- param "uuid"
   wb <- body
-  env0 <- HM.lookup ip devicesEnv
+  env0 <- Map.lookup ip devicesEnv
   case env0 of
     Nothing -> do
       status status500
@@ -52,12 +52,12 @@ requestHandler devicesEnv = do
 uploadHandler
   :: (Transport tp)
   => (File -> Command)
-  -> IOHashMap ByteString (DeviceEnv tp) -> ActionM ()
+  -> IOMap ByteString (DeviceEnv tp) -> ActionM ()
 uploadHandler cmd devicesEnv = do
   ip <- param "uuid"
   fn <- param "fileName"
   wb <- body
-  env0 <- HM.lookup ip devicesEnv
+  env0 <- Map.lookup ip devicesEnv
   case env0 of
     Nothing -> do
       status status500
@@ -67,11 +67,11 @@ uploadHandler cmd devicesEnv = do
 
       responseCmd r
 
-downloadHandler :: (Transport tp) => IOHashMap ByteString (DeviceEnv tp) -> ActionM ()
+downloadHandler :: (Transport tp) => IOMap ByteString (DeviceEnv tp) -> ActionM ()
 downloadHandler devicesEnv = do
   ip <- param "uuid"
   fn <- param "fileName"
-  env0 <- HM.lookup ip devicesEnv
+  env0 <- Map.lookup ip devicesEnv
   case env0 of
     Nothing -> do
       status status500
@@ -81,10 +81,10 @@ downloadHandler devicesEnv = do
 
       responseCmd r
 
-endHandler :: (Transport tp) => IOHashMap ByteString (DeviceEnv tp) -> ActionM ()
+endHandler :: (Transport tp) => IOMap ByteString (DeviceEnv tp) -> ActionM ()
 endHandler devicesEnv = do
   ip <- param "uuid"
-  env0 <- HM.lookup ip devicesEnv
+  env0 <- Map.lookup ip devicesEnv
   case env0 of
     Nothing -> do
       status status500

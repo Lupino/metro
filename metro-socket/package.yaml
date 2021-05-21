@@ -31,8 +31,6 @@ library:
   - metro
   - hslogger
   - transformers
-  - hashable
   - mtl
-
   - bytestring
-  - hashmap-io
+  - map-io

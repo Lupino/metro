@@ -54,10 +54,9 @@ import           Control.Monad.Cont         (callCC, runContT)
 import           Control.Monad.Reader.Class (MonadReader (ask), asks)
 import           Control.Monad.Trans.Class  (MonadTrans (..))
 import           Control.Monad.Trans.Reader (ReaderT (..), runReaderT)
-import           Data.Hashable
-import           Data.IOHashMap             (IOHashMap)
-import qualified Data.IOHashMap             as HM (delete, elems, empty, insert,
-                                                   lookup, size)
+import           Data.IOMap                 (IOMap)
+import qualified Data.IOMap                 as Map (delete, elems, empty,
+                                                    insert, lookup, size)
 import           Data.Int                   (Int64)
 import           Data.Maybe                 (fromMaybe, isJust)
 import           Metro.Class                (GetPacketId, RecvPacket,
@@ -88,7 +87,7 @@ data NodeEnv u nid k rpkt = NodeEnv
     , nodeMode    :: NodeMode
     , sessionMode :: SessionMode
     , nodeSession :: TVar (Maybe (SessionEnv u nid k rpkt))
-    , sessionList :: IOHashMap k (SessionEnv u nid k rpkt)
+    , sessionList :: IOMap k (SessionEnv u nid k rpkt)
     , sessionGen  :: IO k
     , nodeTimer   :: TVar Int64
     , nodeId      :: nid
@@ -132,7 +131,7 @@ initEnv :: MonadIO m => u -> nid -> IO k -> m (NodeEnv u nid k rpkt)
 initEnv uEnv nodeId sessionGen = do
   nodeStatus  <- newTVarIO True
   nodeSession <- newTVarIO Nothing
-  sessionList <- HM.empty
+  sessionList <- Map.empty
   nodeTimer   <- newTVarIO =<< getEpochTime
   onNodeLeave <- newTVarIO Nothing
   sessTimeout <- newTVarIO 300
@@ -180,14 +179,14 @@ runSessionT_ :: Monad m => SessionEnv u nid k rpkt -> SessionT u nid k rpkt tp m
 runSessionT_ aEnv = fromConn . runSessionT aEnv
 
 withSessionT
-  :: (MonadUnliftIO m, Eq k, Hashable k)
+  :: (MonadUnliftIO m, Eq k, Ord k)
   => Maybe Int64 -> SessionT u nid k rpkt tp m a -> NodeT u nid k rpkt tp m a
 withSessionT sTout sessionT =
   bracket nextSessionId removeSession $ \sid -> do
     aEnv <- newSessionEnv sTout sid
     runSessionT_ aEnv sessionT
 
-newSessionEnv :: (MonadIO m, Eq k, Hashable k) => Maybe Int64 -> k -> NodeT u nid k rpkt tp m (SessionEnv u nid k rpkt)
+newSessionEnv :: (MonadIO m, Eq k, Ord k) => Maybe Int64 -> k -> NodeT u nid k rpkt tp m (SessionEnv u nid k rpkt)
 newSessionEnv sTout sid = do
   NodeEnv{..} <- ask
   dTout <- readTVarIO sessTimeout
@@ -200,18 +199,18 @@ newSessionEnv sTout sid = do
         Just _  -> do
           state <- readTVar nodeStatus
           when state retrySTM
-    Multi -> HM.insert sid sEnv sessionList
+    Multi -> Map.insert sid sEnv sessionList
   return sEnv
 
 nextSessionId :: MonadIO m => NodeT u nid k rpkt tp m k
 nextSessionId = liftIO =<< asks sessionGen
 
-removeSession :: (MonadIO m, Eq k, Hashable k) => k -> NodeT u nid k rpkt tp m ()
+removeSession :: (MonadIO m, Eq k, Ord k) => k -> NodeT u nid k rpkt tp m ()
 removeSession mid = do
   NodeEnv{..} <- ask
   case nodeMode of
     Single -> atomically $ writeTVar nodeSession Nothing
-    Multi  -> HM.delete mid sessionList
+    Multi  -> Map.delete mid sessionList
 
 busy :: MonadIO m => NodeT u nid k rpkt tp m Bool
 busy = do
@@ -221,7 +220,7 @@ busy = do
     Multi  -> return False
 
 tryMainLoop
-  :: (MonadUnliftIO m, Transport tp, RecvPacket rpkt, GetPacketId k rpkt, Eq k, Hashable k)
+  :: (MonadUnliftIO m, Transport tp, RecvPacket rpkt, GetPacketId k rpkt, Eq k, Ord k)
   => (rpkt -> m Bool) -> SessionT u nid k rpkt tp m () -> NodeT u nid k rpkt tp m ()
 tryMainLoop preprocess sessionHandler = do
   r <- tryAny $ mainLoop preprocess sessionHandler
@@ -233,7 +232,7 @@ tryMainLoop preprocess sessionHandler = do
     Right _  -> pure ()
 
 mainLoop
-  :: (MonadUnliftIO m, Transport tp, RecvPacket rpkt, GetPacketId k rpkt, Eq k, Hashable k)
+  :: (MonadUnliftIO m, Transport tp, RecvPacket rpkt, GetPacketId k rpkt, Eq k, Ord k)
   => (rpkt -> m Bool) -> SessionT u nid k rpkt tp m () -> NodeT u nid k rpkt tp m ()
 mainLoop preprocess sessionHandler = do
   NodeEnv{..} <- ask
@@ -243,7 +242,7 @@ mainLoop preprocess sessionHandler = do
   when r $ void . async $ tryDoFeed rpkt sessionHandler
 
 tryDoFeed
-  :: (MonadUnliftIO m, Transport tp, GetPacketId k rpkt, Eq k, Hashable k)
+  :: (MonadUnliftIO m, Transport tp, GetPacketId k rpkt, Eq k, Ord k)
   => rpkt -> SessionT u nid k rpkt tp m () -> NodeT u nid k rpkt tp m ()
 tryDoFeed rpkt sessionHandler = do
   r <- tryAny $ doFeed rpkt sessionHandler
@@ -252,13 +251,13 @@ tryDoFeed rpkt sessionHandler = do
     Right _ -> pure ()
 
 doFeed
-  :: (MonadUnliftIO m, GetPacketId k rpkt, Eq k, Hashable k)
+  :: (MonadUnliftIO m, GetPacketId k rpkt, Eq k, Ord k)
   => rpkt -> SessionT u nid k rpkt tp m () -> NodeT u nid k rpkt tp m ()
 doFeed rpkt sessionHandler = do
   NodeEnv{..} <- ask
   v <- case nodeMode of
          Single -> readTVarIO nodeSession
-         Multi  -> HM.lookup (getPacketId rpkt) sessionList
+         Multi  -> Map.lookup (getPacketId rpkt) sessionList
   case v of
     Just aEnv ->
       runSessionT_ aEnv $ feed $ Just rpkt
@@ -269,17 +268,17 @@ doFeed rpkt sessionHandler = do
       when (sessionMode == MultiAction) $
         case nodeMode of
           Single -> atomically $ writeTVar nodeSession $ Just sEnv
-          Multi  -> HM.insert sid sEnv sessionList
+          Multi  -> Map.insert sid sEnv sessionList
       bracket (return sid) removeSession $ \_ ->
         runSessionT_ sEnv sessionHandler
 
 startNodeT
-  :: (MonadUnliftIO m, Transport tp, RecvPacket rpkt, GetPacketId k rpkt, Eq k, Hashable k)
+  :: (MonadUnliftIO m, Transport tp, RecvPacket rpkt, GetPacketId k rpkt, Eq k, Ord k)
   => SessionT u nid k rpkt tp m () -> NodeT u nid k rpkt tp m ()
 startNodeT = startNodeT_ (const $ return True)
 
 startNodeT_
-  :: (MonadUnliftIO m, Transport tp, RecvPacket rpkt, GetPacketId k rpkt, Eq k, Hashable k)
+  :: (MonadUnliftIO m, Transport tp, RecvPacket rpkt, GetPacketId k rpkt, Eq k, Ord k)
   => (rpkt -> m Bool) -> SessionT u nid k rpkt tp m () -> NodeT u nid k rpkt tp m ()
 startNodeT_ preprocess sessionHandler = do
   sess <- runCheckSessionState
@@ -296,7 +295,7 @@ nodeState = readTVarIO =<< asks nodeStatus
 
 doFeedError :: MonadIO m => NodeT u nid k rpkt tp m ()
 doFeedError =
-  asks sessionList >>= HM.elems >>= mapM_ go
+  asks sessionList >>= Map.elems >>= mapM_ go
   where go :: MonadIO m => SessionEnv u nid k rpkt -> NodeT u nid k rpkt tp m ()
         go aEnv = runSessionT_ aEnv $ feed Nothing
 
@@ -310,12 +309,12 @@ env :: Monad m => NodeT u nid k rpkt tp m u
 env = asks uEnv
 
 request
-  :: (MonadUnliftIO m, Transport tp, SendPacket spkt, SetPacketId k spkt, Eq k, Hashable k)
+  :: (MonadUnliftIO m, Transport tp, SendPacket spkt, SetPacketId k spkt, Eq k, Ord k)
   => Maybe Int64 -> spkt -> NodeT u nid k rpkt tp m (Maybe rpkt)
 request sTout = requestAndRetry sTout Nothing
 
 requestAndRetry
-  :: (MonadUnliftIO m, Transport tp, SendPacket spkt, SetPacketId k spkt, Eq k, Hashable k)
+  :: (MonadUnliftIO m, Transport tp, SendPacket spkt, SetPacketId k spkt, Eq k, Ord k)
   => Maybe Int64 -> Maybe Int -> spkt -> NodeT u nid k rpkt tp m (Maybe rpkt)
 requestAndRetry sTout retryTout spkt = do
   alive <- nodeState
@@ -344,25 +343,25 @@ setTimer t = do
 getNodeId :: Monad m => NodeT n nid k rpkt tp m nid
 getNodeId = asks nodeId
 
-runCheckSessionState :: (MonadUnliftIO m, Eq k, Hashable k) => NodeT u nid k rpkt tp m (Async ())
+runCheckSessionState :: (MonadUnliftIO m, Eq k, Ord k) => NodeT u nid k rpkt tp m (Async ())
 runCheckSessionState = do
   sessList <- asks sessionList
   async . forever $ do
     threadDelay $ 1000 * 1000 * 10  -- 10 seconds
-    mapM_ (checkAlive sessList) =<< HM.elems sessList
+    mapM_ (checkAlive sessList) =<< Map.elems sessList
 
   where checkAlive
-          :: (MonadUnliftIO m, Eq k, Hashable k)
-          => IOHashMap k (SessionEnv u nid k rpkt) -> SessionEnv u nid k rpkt -> NodeT u nid k rpkt tp m ()
+          :: (MonadUnliftIO m, Eq k, Ord k)
+          => IOMap k (SessionEnv u nid k rpkt) -> SessionEnv u nid k rpkt -> NodeT u nid k rpkt tp m ()
         checkAlive sessList sessEnv =
           runSessionT_ sessEnv $ do
             to <- isTimeout
             when to $ do
               feed Nothing
-              HM.delete (sessionId sessEnv) sessList
+              Map.delete (sessionId sessEnv) sessList
 
 getSessionSize :: MonadIO m => NodeEnv u nid k rpkt -> m Int
-getSessionSize NodeEnv {..} = HM.size sessionList
+getSessionSize NodeEnv {..} = Map.size sessionList
 
 getSessionSize1 :: MonadIO m => NodeEnv1 u nid k rpkt tp -> m Int
 getSessionSize1 NodeEnv1 {..} = getSessionSize nodeEnv
