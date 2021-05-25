@@ -24,6 +24,7 @@ module Metro.Server
   , setDefaultSessionTimeout
   , setKeepalive
 
+  , setOnExcClose
   , setOnNodeLeave
 
   , runServerT
@@ -57,18 +58,19 @@ import           UnliftIO
 import           UnliftIO.Concurrent        (threadDelay)
 
 data ServerEnv serv u nid k rpkt tp = ServerEnv
-    { serveServ   :: serv
-    , serveState  :: TVar Bool
-    , nodeEnvList :: IOMap nid (NodeEnv1 u nid k rpkt tp)
-    , prepare     :: serv -> SID serv -> ConnEnv tp -> IO (Maybe (nid, u))
-    , gen         :: IO k
-    , keepalive   :: TVar Int64 -- client keepalive seconds
-    , defSessTout :: TVar Int64 -- session timeout seconds
-    , nodeMode    :: NodeMode
-    , sessionMode :: SessionMode
-    , serveName   :: String
-    , onNodeLeave :: TVar (Maybe (nid -> u -> IO ()))
-    , mapTP       :: TransportConfig (STP serv) -> TransportConfig tp
+    { serveServ    :: serv
+    , serveState   :: TVar Bool
+    , nodeEnvList  :: IOMap nid (NodeEnv1 u nid k rpkt tp)
+    , prepare      :: serv -> SID serv -> ConnEnv tp -> IO (Maybe (nid, u))
+    , gen          :: IO k
+    , keepalive    :: TVar Int64 -- client keepalive seconds
+    , defSessTout  :: TVar Int64 -- session timeout seconds
+    , nodeMode     :: NodeMode
+    , sessionMode  :: SessionMode
+    , serveName    :: String
+    , onNodeLeave  :: TVar (Maybe (nid -> u -> IO ()))
+    , nodeExcClose :: Bool
+    , mapTP        :: TransportConfig (STP serv) -> TransportConfig tp
     }
 
 
@@ -107,9 +109,10 @@ initServerEnv sc gen mapTP prepare = do
   keepalive   <- newTVarIO 300
   defSessTout <- newTVarIO 300
   pure ServerEnv
-    { nodeMode    = Multi
-    , sessionMode = SingleAction
-    , serveName   = "Metro"
+    { nodeMode     = Multi
+    , sessionMode  = SingleAction
+    , serveName    = "Metro"
+    , nodeExcClose = False
     , ..
     }
 
@@ -134,6 +137,10 @@ setDefaultSessionTimeout
   :: MonadIO m => ServerEnv serv u nid k rpkt tp -> Int -> m ()
 setDefaultSessionTimeout sEnv =
   atomically . writeTVar (defSessTout sEnv) . fromIntegral
+
+setOnExcClose
+  :: Bool -> ServerEnv serv u nid k rpkt tp -> ServerEnv serv u nid k rpkt tp
+setOnExcClose n sEnv = sEnv {nodeExcClose = n}
 
 setOnNodeLeave :: MonadIO m => ServerEnv serv u nid k rpkt tp -> (nid -> u -> IO ()) -> m ()
 setOnNodeLeave sEnv = atomically . writeTVar (onNodeLeave sEnv) . Just
@@ -215,7 +222,7 @@ handleConn n servID connEnv nid uEnv preprocess sess = do
     env0 <- initEnv1
       (Node.setNodeMode nodeMode
       . Node.setSessionMode sessionMode
-      . Node.setDefaultSessionTimeout defSessTout) connEnv uEnv nid gen
+      . Node.setDefaultSessionTimeout defSessTout) connEnv uEnv nid nodeExcClose gen
 
     env1 <- atomically $ do
       v <- MapS.lookup nid nodeEnvList

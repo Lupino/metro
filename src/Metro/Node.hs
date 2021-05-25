@@ -91,6 +91,7 @@ data NodeEnv u nid k rpkt = NodeEnv
     , sessionGen  :: IO k
     , nodeTimer   :: TVar Int64
     , nodeId      :: nid
+    , onExcColse  :: Bool
     , sessTimeout :: TVar Int64
     , onNodeLeave :: TVar (Maybe (u -> IO ()))
     }
@@ -127,8 +128,8 @@ runNodeT nEnv = flip runReaderT nEnv . unNodeT
 runNodeT1 :: NodeEnv1 u nid k rpkt tp -> NodeT u nid k rpkt tp m a -> m a
 runNodeT1 NodeEnv1 {..} = runConnT connEnv . runNodeT nodeEnv
 
-initEnv :: MonadIO m => u -> nid -> IO k -> m (NodeEnv u nid k rpkt)
-initEnv uEnv nodeId sessionGen = do
+initEnv :: MonadIO m => u -> nid -> Bool -> IO k -> m (NodeEnv u nid k rpkt)
+initEnv uEnv nodeId onExcColse sessionGen = do
   nodeStatus  <- newTVarIO True
   nodeSession <- newTVarIO Nothing
   sessionList <- Map.empty
@@ -162,9 +163,9 @@ setDefaultSessionTimeout1 NodeEnv1 {..} = atomically . writeTVar (sessTimeout no
 initEnv1
   :: MonadIO m
   => (NodeEnv u nid k rpkt -> NodeEnv u nid k rpkt)
-  -> ConnEnv tp -> u -> nid -> IO k -> m (NodeEnv1 u nid k rpkt tp)
-initEnv1 mapEnv connEnv uEnv nid gen = do
-  nodeEnv <- mapEnv <$> initEnv uEnv nid gen
+  -> ConnEnv tp -> u -> nid -> Bool -> IO k -> m (NodeEnv1 u nid k rpkt tp)
+initEnv1 mapEnv connEnv uEnv nid excColse gen = do
+  nodeEnv <- mapEnv <$> initEnv uEnv nid excColse gen
   return NodeEnv1 {..}
 
 getEnv1
@@ -225,10 +226,15 @@ tryMainLoop
 tryMainLoop preprocess sessionHandler = do
   r <- tryAny $ mainLoop preprocess sessionHandler
   case r of
-    Left err ->
+    Left err -> do
+      liftIO $ errorM "Metro.Node" $ "MainLoop Error: " ++ show err
       case show err of
         "TransportClosed" -> stopNodeT
-        errS -> liftIO $ errorM "Metro.Node" $ "MainLoop Error: " ++ errS
+        errS -> do
+          liftIO $ errorM "Metro.Node" $ "MainLoop Error: " ++ errS
+          close <- asks onExcColse
+          when close stopNodeT
+
     Right _  -> pure ()
 
 mainLoop
