@@ -3,6 +3,7 @@ module Data.IOMap
   , newIOMap
   , readIOMap
   , modifyIOMap
+  , stateIOMap
   , (!)
   , (!?)
   , null
@@ -91,6 +92,9 @@ readIOMap f = liftIO . atomically . STM.readIOMap f
 
 modifyIOMap :: MonadIO m => (Map k v -> Map k v) -> IOMap k v -> m ()
 modifyIOMap f = liftIO . atomically . STM.modifyIOMap f
+
+stateIOMap :: MonadIO m => (Map k v -> (a, Map k v)) -> IOMap k v -> m a
+stateIOMap f = liftIO . atomically . STM.stateIOMap f
 -- end helpers
 
 {--------------------------------------------------------------------
@@ -311,7 +315,7 @@ insertWithKey f k = modifyIOMap . Map.insertWithKey f k
 -- See Note: Type of local 'go' function
 insertLookupWithKey :: (MonadIO m, Ord k) => (k -> a -> a -> a) -> k -> a -> IOMap k a
                     -> m (Maybe a)
-insertLookupWithKey f k a m = fst <$> readIOMap (Map.insertLookupWithKey f k a) m
+insertLookupWithKey f k a m = stateIOMap (Map.insertLookupWithKey f k a) m
 
 {--------------------------------------------------------------------
   Deletion
@@ -386,7 +390,7 @@ updateWithKey f = modifyIOMap . Map.updateWithKey f
 
 -- See Note: Type of local 'go' function
 updateLookupWithKey :: (MonadIO m, Ord k) => (k -> a -> Maybe a) -> k -> IOMap k a -> m (Maybe a)
-updateLookupWithKey f k m = fst <$> readIOMap (Map.updateLookupWithKey f k) m
+updateLookupWithKey f k m = stateIOMap (Map.updateLookupWithKey f k) m
 
 -- | /O(log n)/. The expression (@'alter' f k map@) alters the value @x@ at @k@, or absence thereof.
 -- 'alter' can be used to insert, delete, or update a value in a 'Map'.

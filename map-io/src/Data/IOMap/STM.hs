@@ -3,6 +3,7 @@ module Data.IOMap.STM
   , newIOMap
   , readIOMap
   , modifyIOMap
+  , stateIOMap
   , (!)
   , (!?)
   , null
@@ -74,7 +75,7 @@ module Data.IOMap.STM
   ) where
 
 import           Control.Concurrent.STM (STM, TVar, modifyTVar', newTVar,
-                                         readTVar)
+                                         readTVar, stateTVar)
 import           Data.Map.Strict        (Map)
 import qualified Data.Map.Strict        as Map
 import qualified Data.Set.Internal      as Set
@@ -91,6 +92,9 @@ readIOMap f (IOMap h) = f <$> readTVar h
 
 modifyIOMap :: (Map k v -> Map k v) -> IOMap k v -> STM ()
 modifyIOMap f (IOMap h) = modifyTVar' h f
+
+stateIOMap :: (Map k v -> (a, Map k v)) -> IOMap k v -> STM a
+stateIOMap f (IOMap h) = stateTVar h f
 -- end helpers
 
 {--------------------------------------------------------------------
@@ -311,7 +315,7 @@ insertWithKey f k = modifyIOMap . Map.insertWithKey f k
 -- See Note: Type of local 'go' function
 insertLookupWithKey :: Ord k => (k -> a -> a -> a) -> k -> a -> IOMap k a
                     -> STM (Maybe a)
-insertLookupWithKey f k a m = fst <$> readIOMap (Map.insertLookupWithKey f k a) m
+insertLookupWithKey f k a m = stateIOMap (Map.insertLookupWithKey f k a) m
 
 {--------------------------------------------------------------------
   Deletion
@@ -386,7 +390,7 @@ updateWithKey f = modifyIOMap . Map.updateWithKey f
 
 -- See Note: Type of local 'go' function
 updateLookupWithKey :: Ord k => (k -> a -> Maybe a) -> k -> IOMap k a -> STM (Maybe a)
-updateLookupWithKey f k m = fst <$> readIOMap (Map.updateLookupWithKey f k) m
+updateLookupWithKey f k m = stateIOMap (Map.updateLookupWithKey f k) m
 
 -- | /O(log n)/. The expression (@'alter' f k map@) alters the value @x@ at @k@, or absence thereof.
 -- 'alter' can be used to insert, delete, or update a value in a 'Map'.
