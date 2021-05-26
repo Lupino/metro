@@ -227,7 +227,6 @@ tryMainLoop preprocess sessionHandler = do
   r <- tryAny $ mainLoop preprocess sessionHandler
   case r of
     Left err -> do
-      liftIO $ errorM "Metro.Node" $ "MainLoop Error: " ++ show err
       case show err of
         "TransportClosed" -> stopNodeT
         errS -> do
@@ -253,7 +252,10 @@ tryDoFeed
 tryDoFeed rpkt sessionHandler = do
   r <- tryAny $ doFeed rpkt sessionHandler
   case r of
-    Left e  -> liftIO $ errorM "Metro.Node" $ "DoFeed Error: " ++ show e
+    Left e  ->
+      case show e of
+        ('N':'e':'t':'w':'o':'r':'k':_) -> stopNodeT
+        ee -> liftIO $ errorM "Metro.Node" $ "DoFeed Error: " ++ ee
     Right _ -> pure ()
 
 doFeed
