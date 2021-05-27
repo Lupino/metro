@@ -229,6 +229,7 @@ tryMainLoop preprocess sessionHandler = do
     Left err -> do
       case show err of
         "TransportClosed" -> stopNodeT
+        ('N':'e':'t':'w':'o':'r':'k':_) -> stopNodeT
         errS -> do
           liftIO $ errorM "Metro.Node" $ "MainLoop Error: " ++ errS
           close <- asks onExcColse
