@@ -315,7 +315,7 @@ insertWithKey f k = modifyIOMap . Map.insertWithKey f k
 -- See Note: Type of local 'go' function
 insertLookupWithKey :: (MonadIO m, Ord k) => (k -> a -> a -> a) -> k -> a -> IOMap k a
                     -> m (Maybe a)
-insertLookupWithKey f k a m = stateIOMap (Map.insertLookupWithKey f k a) m
+insertLookupWithKey f k = stateIOMap . Map.insertLookupWithKey f k
 
 {--------------------------------------------------------------------
   Deletion
@@ -390,7 +390,7 @@ updateWithKey f = modifyIOMap . Map.updateWithKey f
 
 -- See Note: Type of local 'go' function
 updateLookupWithKey :: (MonadIO m, Ord k) => (k -> a -> Maybe a) -> k -> IOMap k a -> m (Maybe a)
-updateLookupWithKey f k m = stateIOMap (Map.updateLookupWithKey f k) m
+updateLookupWithKey f = stateIOMap . Map.updateLookupWithKey f
 
 -- | /O(log n)/. The expression (@'alter' f k map@) alters the value @x@ at @k@, or absence thereof.
 -- 'alter' can be used to insert, delete, or update a value in a 'Map'.
