@@ -9,6 +9,7 @@
 
 module Metro.Node
   ( NodeEnv
+  , uEnv
   , NodeMode (..)
   , SessionMode (..)
   , NodeT
