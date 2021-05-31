@@ -46,7 +46,7 @@ class Servable serv where
   servClose   :: MonadIO m => serv -> m ()
 
 class RecvPacket rpkt where
-  recvPacket :: MonadIO m => (Int -> m ByteString) -> m rpkt
+  recvPacket :: MonadUnliftIO m => (Int -> m ByteString) -> m rpkt
 
 class SendPacket spkt where
   sendPacket :: MonadIO m => spkt -> (ByteString -> m ()) -> m ()
