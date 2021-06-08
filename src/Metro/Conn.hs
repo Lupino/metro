@@ -7,7 +7,7 @@
 {-# LANGUAGE UndecidableInstances       #-}
 
 module Metro.Conn
-  ( ConnEnv
+  ( ConnEnv (transport)
   , ConnT
   , FromConn (..)
   , runConnT
