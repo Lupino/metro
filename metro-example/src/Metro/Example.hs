@@ -27,8 +27,9 @@ import           Metro.Example.Types  (Command (..), Packet (..))
 import           Metro.Example.Web    (startWeb)
 import           Metro.Server         (ServerEnv, getNodeEnvList, initServerEnv,
                                        setDefaultSessionTimeout, setKeepalive,
-                                       setNodeMode, setServerName,
-                                       setSessionMode, startServer)
+                                       setNodeMode, setOnExcClose,
+                                       setServerName, setSessionMode,
+                                       startServer)
 import           Metro.Session        (send)
 import           Metro.SocketServer   (socketServer)
 import           Metro.TP.Debug       (DebugMode (..), debugConfig)
@@ -90,6 +91,7 @@ startMetroServer ServerConfig {..} = do
           setNodeMode Multi
           . setSessionMode SingleAction
           . setServerName "Example"
+          . setOnExcClose True
 
 startMetroClient :: ServerConfig -> IO ()
 startMetroClient ServerConfig {..} = do

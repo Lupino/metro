@@ -29,7 +29,7 @@ type DeviceEnv tp = NodeEnv1 () ByteString Word16 Packet tp
 initDeviceEnv :: MonadIO m => ConnEnv tp -> ByteString -> m (DeviceEnv tp)
 initDeviceEnv connEnv nid = do
   gen <- liftIO sessionGen
-  initEnv1 id connEnv () nid gen
+  initEnv1 id connEnv () nid True gen
 
 sessionGen :: IO (IO Word16)
 sessionGen = do
