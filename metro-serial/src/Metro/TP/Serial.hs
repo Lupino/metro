@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards   #-}
 {-# LANGUAGE TypeFamilies      #-}
 module Metro.TP.Serial
   ( Serial
@@ -17,8 +18,19 @@ import           System.Hardware.Serialport (CommSpeed (..), SerialPort,
                                              defaultSerialSettings)
 import qualified System.Hardware.Serialport as S (closeSerial, openSerial, recv,
                                                   send, withSerial)
+import           UnliftIO                   (TVar, atomically, newTVarIO,
+                                             readTVarIO, writeTVar)
 
-data Serial = Serial String SerialPort
+data Serial = Serial
+  { portPath       :: String
+  , serialPort     :: TVar (Maybe SerialPort)
+  , serialSettings :: SerialPortSettings
+  }
+
+newSerial :: String -> SerialPortSettings -> Maybe SerialPort -> IO Serial
+newSerial portPath serialSettings port = do
+  serialPort <- newTVarIO port
+  return Serial {..}
 
 sendAll :: SerialPort -> ByteString -> IO ()
 sendAll _ "" = pure ()
@@ -33,19 +45,41 @@ recv port nbytes = do
   if B.length bs == 0 then recv port nbytes
                       else return bs
 
+getSerialPort :: Serial -> IO SerialPort
+getSerialPort Serial {..} = do
+  mport <- readTVarIO serialPort
+  case mport of
+    Just port -> return port
+    Nothing -> do
+      port <- S.openSerial portPath serialSettings
+      atomically $ writeTVar serialPort (Just port)
+      return port
+
+withSerialPort :: Serial -> (SerialPort -> b -> IO a) -> b -> IO a
+withSerialPort s f b = getSerialPort s >>= flip f b
+
+tryCloseSerial :: Serial -> IO ()
+tryCloseSerial Serial {..} = do
+  mport <- readTVarIO serialPort
+  case mport of
+    Nothing -> pure ()
+    Just port -> do
+      S.closeSerial port
+      atomically $ writeTVar serialPort Nothing
+
 instance Transport Serial where
   data TransportConfig Serial
     = SerialPath String SerialPortSettings
-    | SerialPort String SerialPort
-  newTP (SerialPath port settings) = Serial port <$> S.openSerial port settings
-  newTP (SerialPort port soc)      = pure $ Serial port soc
-  recvData (Serial _ soc)       = recv soc
-  sendData (Serial _ soc)       = sendAll soc
-  closeTP  (Serial _ soc)       = S.closeSerial soc
-  getTPName (Serial port _)     = pure port
+    | SerialPort String SerialPortSettings SerialPort
+  newTP (SerialPath port settings)     = newSerial port settings . Just =<< S.openSerial port settings
+  newTP (SerialPort port settings soc) = newSerial port settings (Just soc)
+  recvData  s = withSerialPort s recv
+  sendData  s = withSerialPort s sendAll
+  closeTP     = tryCloseSerial
+  getTPName   = pure . portPath
 
 serial :: String -> SerialPortSettings -> TransportConfig Serial
 serial = SerialPath
 
 withSerial :: FilePath -> SerialPortSettings -> (TransportConfig Serial -> IO a) -> IO a
-withSerial port settings f = S.withSerial port settings $ f . SerialPort port
+withSerial port settings f = S.withSerial port settings $ f . SerialPort port settings

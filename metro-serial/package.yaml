@@ -28,3 +28,4 @@ library:
   - metro
   - bytestring
   - serialport
+  - unliftio

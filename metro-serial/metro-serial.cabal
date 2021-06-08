@@ -37,4 +37,5 @@ library
     , bytestring
     , metro
     , serialport
+    , unliftio
   default-language: Haskell2010
