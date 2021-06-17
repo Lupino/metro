@@ -13,6 +13,7 @@ module Metro.Conn
   , runConnT
   , initConnEnv
   , receive
+  , receive_
   , send
   , close
   , statusTVar
@@ -79,6 +80,9 @@ receive :: (MonadUnliftIO m, Transport tp, RecvPacket u pkt) => u -> ConnT tp m 
 receive u = do
   ConnEnv{..} <- ask
   L.with readLock $ lift $ recvPacket u (recvEnough buffer transport)
+
+receive_ :: (MonadUnliftIO m, Transport tp, RecvPacket () pkt) => ConnT tp m pkt
+receive_ = receive ()
 
 send :: (MonadUnliftIO m, Transport tp, SendPacket pkt) => pkt -> ConnT tp m ()
 send pkt = do
