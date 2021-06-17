@@ -222,7 +222,7 @@ busy = do
     Multi  -> return False
 
 tryMainLoop
-  :: (MonadUnliftIO m, Transport tp, RecvPacket rpkt, GetPacketId k rpkt, Eq k, Ord k)
+  :: (MonadUnliftIO m, Transport tp, RecvPacket u rpkt, GetPacketId k rpkt, Eq k, Ord k)
   => (rpkt -> m Bool) -> SessionT u nid k rpkt tp m () -> NodeT u nid k rpkt tp m ()
 tryMainLoop preprocess sessionHandler = do
   r <- tryAny $ mainLoop preprocess sessionHandler
@@ -239,11 +239,11 @@ tryMainLoop preprocess sessionHandler = do
     Right _  -> pure ()
 
 mainLoop
-  :: (MonadUnliftIO m, Transport tp, RecvPacket rpkt, GetPacketId k rpkt, Eq k, Ord k)
+  :: (MonadUnliftIO m, Transport tp, RecvPacket u rpkt, GetPacketId k rpkt, Eq k, Ord k)
   => (rpkt -> m Bool) -> SessionT u nid k rpkt tp m () -> NodeT u nid k rpkt tp m ()
 mainLoop preprocess sessionHandler = do
   NodeEnv{..} <- ask
-  rpkt <- fromConn receive
+  rpkt <- fromConn (receive uEnv)
   setTimer =<< getEpochTime
   r <- lift $ preprocess rpkt
   when r $ void . async $ tryDoFeed rpkt sessionHandler
@@ -283,12 +283,12 @@ doFeed rpkt sessionHandler = do
         runSessionT_ sEnv sessionHandler
 
 startNodeT
-  :: (MonadUnliftIO m, Transport tp, RecvPacket rpkt, GetPacketId k rpkt, Eq k, Ord k)
+  :: (MonadUnliftIO m, Transport tp, RecvPacket u rpkt, GetPacketId k rpkt, Eq k, Ord k)
   => SessionT u nid k rpkt tp m () -> NodeT u nid k rpkt tp m ()
 startNodeT = startNodeT_ (const $ return True)
 
 startNodeT_
-  :: (MonadUnliftIO m, Transport tp, RecvPacket rpkt, GetPacketId k rpkt, Eq k, Ord k)
+  :: (MonadUnliftIO m, Transport tp, RecvPacket u rpkt, GetPacketId k rpkt, Eq k, Ord k)
   => (rpkt -> m Bool) -> SessionT u nid k rpkt tp m () -> NodeT u nid k rpkt tp m ()
 startNodeT_ preprocess sessionHandler = do
   sess <- runCheckSessionState

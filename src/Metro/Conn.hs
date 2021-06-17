@@ -75,10 +75,10 @@ initConnEnv config = do
   transport <- liftIO $ newTP config
   return ConnEnv{..}
 
-receive :: (MonadUnliftIO m, Transport tp, RecvPacket pkt) => ConnT tp m pkt
-receive = do
+receive :: (MonadUnliftIO m, Transport tp, RecvPacket u pkt) => u -> ConnT tp m pkt
+receive u = do
   ConnEnv{..} <- ask
-  L.with readLock $ lift $ recvPacket (recvEnough buffer transport)
+  L.with readLock $ lift $ recvPacket u (recvEnough buffer transport)
 
 send :: (MonadUnliftIO m, Transport tp, SendPacket pkt) => pkt -> ConnT tp m ()
 send pkt = do

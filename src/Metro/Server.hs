@@ -146,7 +146,7 @@ setOnNodeLeave :: MonadIO m => ServerEnv serv u nid k rpkt tp -> (nid -> u -> IO
 setOnNodeLeave sEnv = atomically . writeTVar (onNodeLeave sEnv) . Just
 
 serveForever
-  :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Ord nid, Eq k, Ord k, GetPacketId k rpkt, RecvPacket rpkt, Servable serv)
+  :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Ord nid, Eq k, Ord k, GetPacketId k rpkt, RecvPacket u rpkt, Servable serv)
   => (rpkt -> m Bool)
   -> SessionT u nid k rpkt tp m ()
   -> ServerT serv u nid k rpkt tp m ()
@@ -162,7 +162,7 @@ serveForever preprocess sess = do
   liftIO $ infoM "Metro.Server" $ name ++ "Server closed"
 
 tryServeOnce
-  :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Ord nid, Eq k, Ord k, GetPacketId k rpkt, RecvPacket rpkt, Servable serv)
+  :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Ord nid, Eq k, Ord k, GetPacketId k rpkt, RecvPacket u rpkt, Servable serv)
   => (rpkt -> m Bool)
   -> SessionT u nid k rpkt tp m ()
   -> ServerT serv u nid k rpkt tp m (Either SomeException ())
@@ -172,7 +172,7 @@ serveOnce
   :: ( MonadUnliftIO m
      , Transport tp
      , Show nid, Eq nid, Ord nid
-     , Eq k, Ord k, GetPacketId k rpkt, RecvPacket rpkt
+     , Eq k, Ord k, GetPacketId k rpkt, RecvPacket u rpkt
      , Servable serv)
   => (rpkt -> m Bool)
   -> SessionT u nid k rpkt tp m ()
@@ -185,7 +185,7 @@ doServeOnce
   :: ( MonadUnliftIO m
      , Transport tp
      , Show nid, Eq nid, Ord nid
-     , Eq k, Ord k, GetPacketId k rpkt, RecvPacket rpkt
+     , Eq k, Ord k, GetPacketId k rpkt, RecvPacket u rpkt
      , Servable serv)
   => (rpkt -> m Bool)
   -> SessionT u nid k rpkt tp m ()
@@ -204,7 +204,7 @@ doServeOnce preprocess sess (Just (servID, stp)) = do
       Right _ -> return ()
 
 handleConn
-  :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Ord nid, Eq k, Ord k, GetPacketId k rpkt, RecvPacket rpkt, Servable serv)
+  :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Ord nid, Eq k, Ord k, GetPacketId k rpkt, RecvPacket u rpkt, Servable serv)
   => String
   -> SID serv
   -> ConnEnv tp
@@ -251,14 +251,14 @@ showNid = r . show
         r xs        = xs
 
 startServer
-  :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Ord nid, Eq k, Ord k, GetPacketId k rpkt, RecvPacket rpkt, Servable serv)
+  :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Ord nid, Eq k, Ord k, GetPacketId k rpkt, RecvPacket u rpkt, Servable serv)
   => ServerEnv serv u nid k rpkt tp
   -> SessionT u nid k rpkt tp m ()
   -> m ()
 startServer sEnv = startServer_ sEnv (const $ return True)
 
 startServer_
-  :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Ord nid, Eq k, Ord k, GetPacketId k rpkt, RecvPacket rpkt, Servable serv)
+  :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Ord nid, Eq k, Ord k, GetPacketId k rpkt, RecvPacket u rpkt, Servable serv)
   => ServerEnv serv u nid k rpkt tp
   -> (rpkt -> m Bool)
   -> SessionT u nid k rpkt tp m ()

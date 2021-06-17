@@ -45,8 +45,8 @@ class Servable serv where
   onConnLeave :: MonadIO m => serv -> SID serv -> m ()
   servClose   :: MonadIO m => serv -> m ()
 
-class RecvPacket rpkt where
-  recvPacket :: MonadUnliftIO m => (Int -> m ByteString) -> m rpkt
+class RecvPacket u rpkt where
+  recvPacket :: MonadUnliftIO m => u -> (Int -> m ByteString) -> m rpkt
 
 class SendPacket spkt where
   sendPacket :: MonadIO m => spkt -> (ByteString -> m ()) -> m ()

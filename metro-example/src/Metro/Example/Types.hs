@@ -119,8 +119,8 @@ preparePacket pkt = pkt
 calcLength :: Packet -> PacketLength
 calcLength Packet {packetCmd = cmd} = PacketLength $ calcCommandLength cmd + 2
 
-instance Class.RecvPacket Packet where
-  recvPacket recv = do
+instance Class.RecvPacket () Packet where
+  recvPacket _ recv = do
     hbs <- recv 2
     case decode (fromStrict hbs) of
       PacketLength len -> do
