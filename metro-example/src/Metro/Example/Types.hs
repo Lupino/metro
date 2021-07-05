@@ -9,13 +9,13 @@ module Metro.Example.Types
   , Command (..)
   ) where
 
-import           Data.Binary          (Binary (..), decode, getWord8, putWord8)
+import           Data.Binary          (Binary (..), getWord8, putWord8)
 import           Data.Binary.Get      (getByteString,
                                        getRemainingLazyByteString, getWord16be)
 import           Data.Binary.Put      (putByteString, putWord16be)
 import           Data.ByteString      (ByteString)
 import qualified Data.ByteString      as B (length)
-import           Data.ByteString.Lazy (fromStrict, toStrict)
+import           Data.ByteString.Lazy (toStrict)
 import           Data.Default.Class   (Default (..))
 import           Data.Word            (Word16)
 import qualified Metro.Class          as Class
@@ -119,13 +119,8 @@ preparePacket pkt = pkt
 calcLength :: Packet -> PacketLength
 calcLength Packet {packetCmd = cmd} = PacketLength $ calcCommandLength cmd + 2
 
-instance Class.RecvPacket () Packet where
-  recvPacket _ recv = do
-    hbs <- recv 2
-    case decode (fromStrict hbs) of
-      PacketLength len -> do
-        bs <- recv len
-        return $ decode . fromStrict $ hbs <> bs
+instance Class.RecvPacket () Packet
+instance Class.FindMagic Packet
 
 instance Class.SendPacket Packet where
   sendPacket = Class.sendBinary . preparePacket

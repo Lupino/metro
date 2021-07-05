@@ -10,14 +10,21 @@ module Metro.Class
   , TransportError (..)
   , Servable (..)
   , RecvPacket (..)
+  , recvBinary
+  , recvDecoder
   , SendPacket (..)
   , sendBinary
   , SetPacketId (..)
   , GetPacketId (..)
+  , FindMagic (..)
+  , pushChunk
   ) where
 
+
 import           Control.Exception    (Exception)
-import           Data.Binary          (Binary, encode)
+import           Data.Binary          (Binary (get), encode)
+import           Data.Binary.Get      (Decoder (..), pushChunk,
+                                       runGetIncremental)
 import           Data.ByteString      (ByteString)
 import           Data.ByteString.Lazy (toStrict)
 import           UnliftIO             (MonadIO, MonadUnliftIO)
@@ -47,11 +54,37 @@ class Servable serv where
 
 class RecvPacket u rpkt where
   recvPacket :: MonadUnliftIO m => u -> (Int -> m ByteString) -> m rpkt
+  default recvPacket
+    :: (MonadUnliftIO m, FindMagic rpkt, Binary rpkt)
+    => u -> (Int -> m ByteString) -> m rpkt
+  recvPacket = recvBinary
 
 class SendPacket spkt where
   sendPacket :: MonadIO m => spkt -> (ByteString -> m ()) -> m ()
   default sendPacket :: (MonadIO m, Binary spkt) => spkt -> (ByteString -> m ()) -> m ()
   sendPacket = sendBinary
+
+
+class FindMagic rpkt where
+  findMagic :: MonadUnliftIO m => Decoder rpkt -> (Int -> m ByteString) -> m (Decoder rpkt)
+  findMagic dec _ = return dec
+
+
+recvBinary :: (MonadUnliftIO m, FindMagic rpkt, Binary rpkt) => u -> (Int -> m ByteString) -> m rpkt
+recvBinary _ recv = do
+  dec <- findMagic (runGetIncremental get) recv
+  r <- recvDecoder dec recv
+  case r of
+    Done _ _ pkt -> return pkt
+    Fail _ _ err -> error err
+    _            -> error "not enough bytes"
+
+
+recvDecoder :: Monad m => Decoder rpkt -> (Int -> m ByteString) -> m (Decoder rpkt)
+recvDecoder (Partial f) recv = do
+  bs <- recv 1
+  recvDecoder (pushChunk (Partial f) bs) recv
+recvDecoder dec _ = return dec
 
 sendBinary :: (MonadIO m, Binary spkt) => spkt -> (ByteString -> m ()) -> m ()
 sendBinary spkt send = send . toStrict $ encode spkt
