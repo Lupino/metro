@@ -79,7 +79,11 @@ initConnEnv config = do
 receive :: (MonadUnliftIO m, Transport tp, RecvPacket u pkt) => u -> ConnT tp m pkt
 receive u = do
   ConnEnv{..} <- ask
-  L.with readLock $ lift $ recvPacket u (recvEnough buffer transport)
+  L.with readLock $ lift $ recvPacket u (putBack buffer) (recvEnough buffer transport)
+  where putBack :: MonadIO m => TVar ByteString -> ByteString -> m ()
+        putBack h bs0 = atomically $ do
+          bs1 <- readTVar h
+          writeTVar h $! bs0 <> bs1
 
 receive_ :: (MonadUnliftIO m, Transport tp, RecvPacket () pkt) => ConnT tp m pkt
 receive_ = receive ()

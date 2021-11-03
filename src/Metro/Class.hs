@@ -53,10 +53,10 @@ class Servable serv where
   servClose   :: MonadIO m => serv -> m ()
 
 class RecvPacket u rpkt where
-  recvPacket :: MonadUnliftIO m => u -> (Int -> m ByteString) -> m rpkt
+  recvPacket :: MonadUnliftIO m => u -> (ByteString -> m ()) -> (Int -> m ByteString) -> m rpkt
   default recvPacket
     :: (MonadUnliftIO m, FindMagic rpkt, Binary rpkt)
-    => u -> (Int -> m ByteString) -> m rpkt
+    => u -> (ByteString -> m ()) -> (Int -> m ByteString) -> m rpkt
   recvPacket = recvBinary
 
 class SendPacket spkt where
@@ -70,14 +70,16 @@ class FindMagic rpkt where
   findMagic dec _ = return dec
 
 
-recvBinary :: (MonadUnliftIO m, FindMagic rpkt, Binary rpkt) => u -> (Int -> m ByteString) -> m rpkt
-recvBinary _ recv = do
+recvBinary
+  :: (MonadUnliftIO m, FindMagic rpkt, Binary rpkt)
+  => u -> (ByteString -> m ()) -> (Int -> m ByteString) -> m rpkt
+recvBinary _ putBack recv = do
   dec <- findMagic (runGetIncremental get) recv
   r <- recvDecoder dec recv
   case r of
-    Done _ _ pkt -> return pkt
-    Fail _ _ err -> error err
-    _            -> error "not enough bytes"
+    Done buf _ pkt -> putBack buf >> return pkt
+    Fail buf _ err -> putBack buf >> error err
+    _              -> error "not enough bytes"
 
 
 recvDecoder :: Monad m => Decoder rpkt -> (Int -> m ByteString) -> m (Decoder rpkt)
