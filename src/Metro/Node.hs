@@ -50,7 +50,7 @@ module Metro.Node
   , getSessionSize1
   ) where
 
-import           Control.Monad              (forM, forever, void, when)
+import           Control.Monad              (forM, forever, when)
 import           Control.Monad.Cont         (callCC, runContT)
 import           Control.Monad.Reader.Class (MonadReader (ask), asks)
 import           Control.Monad.Trans.Class  (MonadTrans (..))
@@ -82,6 +82,13 @@ data SessionMode = SingleAction
     deriving (Show, Eq)
 
 
+type FeederState rpkt = TVar (Maybe rpkt, Bool)
+
+data Feeder rpkt = Feeder
+  { feederState  :: FeederState rpkt
+  , feederWorker :: Async ()
+  }
+
 data NodeEnv u nid k rpkt = NodeEnv
     { uEnv        :: u
     , nodeStatus  :: TVar Bool
@@ -95,6 +102,7 @@ data NodeEnv u nid k rpkt = NodeEnv
     , onExcColse  :: Bool
     , sessTimeout :: TVar Int64
     , onNodeLeave :: TVar (Maybe (u -> IO ()))
+    , feederList  :: TVar [Feeder rpkt]
     }
 
 data NodeEnv1 u nid k rpkt tp = NodeEnv1
@@ -137,6 +145,7 @@ initEnv uEnv nodeId onExcColse sessionGen = do
   nodeTimer   <- newTVarIO =<< getEpochTime
   onNodeLeave <- newTVarIO Nothing
   sessTimeout <- newTVarIO 300
+  feederList  <- newTVarIO []
   pure NodeEnv
     { nodeMode    = Multi
     , sessionMode = SingleAction
@@ -246,7 +255,46 @@ mainLoop preprocess sessionHandler = do
   rpkt <- fromConn (receive uEnv)
   setTimer =<< getEpochTime
   r <- lift $ preprocess rpkt
-  when r $ void . async $ tryDoFeed rpkt sessionHandler
+  when r $ do
+    mFeeder <- getFreeFeeder
+    case mFeeder of
+      Just feeder ->
+        atomically $ writeTVar (feederState feeder) (Just rpkt, True)
+      Nothing -> do
+        state <- newTVarIO (Just rpkt, True)
+        io <- startFeedWorker state sessionHandler
+        atomically $ do
+          feeders <- readTVar feederList
+          writeTVar feederList $! feeders ++ [Feeder state io]
+
+getFreeFeeder :: MonadIO m => NodeT u nid k rpkt tp m (Maybe (Feeder rpkt))
+getFreeFeeder = do
+  feeders <- asks feederList
+  atomically $ readTVar feeders >>= go feeders []
+
+  where go :: TVar [Feeder rpkt] -> [Feeder rpkt] -> [Feeder rpkt] -> STM (Maybe (Feeder rpkt))
+        go _ _ [] = pure Nothing
+        go h ys (x:xs) = do
+          (_, state) <- readTVar $ feederState x
+          if state then go h (ys ++ [x]) xs
+                   else do
+                     writeTVar (feederState x) (Nothing, True)
+                     writeTVar h (xs ++ ys ++ [x])
+                     pure $ Just x
+
+
+startFeedWorker
+  :: (MonadUnliftIO m, Transport tp, GetPacketId k rpkt, Eq k, Ord k)
+  => FeederState rpkt -> SessionT u nid k rpkt tp m () -> NodeT u nid k rpkt tp m (Async ())
+startFeedWorker h sessionHandler = async $ forever $ do
+  rpkt <- atomically $ do
+    v <- readTVar h
+    case v of
+      (Nothing, _)  -> retrySTM
+      (Just pkt, _) -> pure pkt
+
+  tryDoFeed rpkt sessionHandler
+  atomically $ writeTVar h (Nothing, False)
 
 tryDoFeed
   :: (MonadUnliftIO m, Transport tp, GetPacketId k rpkt, Eq k, Ord k)
@@ -314,6 +362,7 @@ stopNodeT = do
   st <- asks nodeStatus
   atomically $ writeTVar st False
   fromConn close
+  asks feederList >>= readTVarIO >>= mapM_ (cancel . feederWorker)
 
 env :: Monad m => NodeT u nid k rpkt tp m u
 env = asks uEnv
