@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 478871a7060ca0eb3396818991214b55dcc4ba92cd9eeb7e6297d9439c2cd61e
+-- hash: 46e8d8798ad6021409e8c16eba9c223da312c6786c52a57365357a4b55ddbac5
 
 name:           metro
 version:        0.1.0.5
@@ -36,6 +36,7 @@ library
       Metro.Node
       Metro.Server
       Metro.Session
+      Metro.SessionPool
       Metro.TP.BS
       Metro.TP.Debug
       Metro.Utils
