@@ -65,6 +65,7 @@ data ServerEnv serv u nid k rpkt tp = ServerEnv
     , gen          :: IO k
     , keepalive    :: TVar Int64 -- client keepalive seconds
     , defSessTout  :: TVar Int64 -- session timeout seconds
+    , maxPoolSize  :: TVar Int -- max session pool size
     , nodeMode     :: NodeMode
     , sessionMode  :: SessionMode
     , serveName    :: String
@@ -108,6 +109,7 @@ initServerEnv sc gen mapTP prepare = do
   onNodeLeave <- newTVarIO Nothing
   keepalive   <- newTVarIO 300
   defSessTout <- newTVarIO 300
+  maxPoolSize <- newTVarIO 10
   pure ServerEnv
     { nodeMode     = Multi
     , sessionMode  = SingleAction
@@ -137,6 +139,13 @@ setDefaultSessionTimeout
   :: MonadIO m => ServerEnv serv u nid k rpkt tp -> Int -> m ()
 setDefaultSessionTimeout sEnv =
   atomically . writeTVar (defSessTout sEnv) . fromIntegral
+
+
+setMaxSessionPoolSize
+  :: MonadIO m => ServerEnv serv u nid k rpkt tp -> Int -> m ()
+setMaxSessionPoolSize sEnv =
+  atomically . writeTVar (maxPoolSize sEnv) . fromIntegral
+
 
 setOnExcClose
   :: Bool -> ServerEnv serv u nid k rpkt tp -> ServerEnv serv u nid k rpkt tp
@@ -223,6 +232,9 @@ handleConn n servID connEnv nid uEnv preprocess sess = do
       (Node.setNodeMode nodeMode
       . Node.setSessionMode sessionMode
       . Node.setDefaultSessionTimeout defSessTout) connEnv uEnv nid nodeExcClose gen
+
+    maxSize <- readTVarIO maxPoolSize
+    Node.setMaxSessionPoolSize (Node.nodeEnv env0) maxSize
 
     env1 <- atomically $ do
       v <- MapS.lookup nid nodeEnvList

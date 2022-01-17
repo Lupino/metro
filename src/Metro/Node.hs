@@ -18,6 +18,7 @@ module Metro.Node
 
   , setNodeMode
   , setSessionMode
+  , setMaxSessionPoolSize
   , setDefaultSessionTimeout
   , setDefaultSessionTimeout1
 
@@ -162,6 +163,9 @@ setDefaultSessionTimeout t nodeEnv = nodeEnv { sessTimeout = t }
 
 setDefaultSessionTimeout1 :: MonadIO m => NodeEnv1 u nid k rpkt tp -> Int64 -> m ()
 setDefaultSessionTimeout1 NodeEnv1 {..} = atomically . writeTVar (sessTimeout nodeEnv)
+
+setMaxSessionPoolSize :: MonadIO m => NodeEnv u nid k rpkt -> Int -> m ()
+setMaxSessionPoolSize nodeEnv = setMaxPoolSize (sessionPool nodeEnv)
 
 
 initEnv1

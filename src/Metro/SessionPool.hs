@@ -2,6 +2,7 @@
 module Metro.SessionPool
   ( SessionPool
   , newSessionPool
+  , setMaxPoolSize
   , spawn
   , close
   ) where
