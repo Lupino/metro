@@ -14,11 +14,11 @@ module Metro.Node
   , SessionMode (..)
   , NodeT
   , initEnv
+  , initEnv_
   , withEnv
 
   , setNodeMode
   , setSessionMode
-  , setMaxSessionPoolSize
   , setDefaultSessionTimeout
   , setDefaultSessionTimeout1
 
@@ -41,6 +41,7 @@ module Metro.Node
   -- combine node env and conn env
   , NodeEnv1 (..)
   , initEnv1
+  , initEnv1_
   , runNodeT1
   , getEnv1
 
@@ -49,6 +50,10 @@ module Metro.Node
 
   , getSessionSize
   , getSessionSize1
+
+  , PoolSize
+  , newPoolSize
+  , setPoolSize
   ) where
 
 import           Control.Monad              (forM, forever, when)
@@ -132,20 +137,25 @@ runNodeT nEnv = flip runReaderT nEnv . unNodeT
 runNodeT1 :: NodeEnv1 u nid k rpkt tp -> NodeT u nid k rpkt tp m a -> m a
 runNodeT1 NodeEnv1 {..} = runConnT connEnv . runNodeT nodeEnv
 
-initEnv :: MonadIO m => u -> nid -> Bool -> IO k -> m (NodeEnv u nid k rpkt)
-initEnv uEnv nodeId onExcColse sessionGen = do
+initEnv_ :: MonadIO m => u -> nid -> Bool -> IO k -> PoolSize -> m (NodeEnv u nid k rpkt)
+initEnv_ uEnv nodeId onExcColse sessionGen poolSize = do
   nodeStatus  <- newTVarIO True
   nodeSession <- newTVarIO Nothing
   sessionList <- Map.empty
   nodeTimer   <- newTVarIO =<< getEpochTime
   onNodeLeave <- newTVarIO Nothing
   sessTimeout <- newTVarIO 300
-  sessionPool <- newSessionPool
+  sessionPool <- newSessionPool poolSize nodeStatus
   pure NodeEnv
     { nodeMode    = Multi
     , sessionMode = SingleAction
     , ..
     }
+
+initEnv :: MonadIO m => u -> nid -> Bool -> IO k -> m (NodeEnv u nid k rpkt)
+initEnv uEnv nodeId onExcColse sessionGen = do
+  poolSize <- newPoolSize 10
+  initEnv_ uEnv nodeId onExcColse sessionGen poolSize
 
 withEnv :: (Monad m) =>  u -> NodeT u nid k rpkt tp m a -> NodeT u nid k rpkt tp m a
 withEnv u m = do
@@ -164,8 +174,13 @@ setDefaultSessionTimeout t nodeEnv = nodeEnv { sessTimeout = t }
 setDefaultSessionTimeout1 :: MonadIO m => NodeEnv1 u nid k rpkt tp -> Int64 -> m ()
 setDefaultSessionTimeout1 NodeEnv1 {..} = atomically . writeTVar (sessTimeout nodeEnv)
 
-setMaxSessionPoolSize :: MonadIO m => NodeEnv u nid k rpkt -> Int -> m ()
-setMaxSessionPoolSize nodeEnv = setMaxPoolSize (sessionPool nodeEnv)
+initEnv1_
+  :: MonadIO m
+  => (NodeEnv u nid k rpkt -> NodeEnv u nid k rpkt)
+  -> ConnEnv tp -> u -> nid -> Bool -> IO k -> PoolSize -> m (NodeEnv1 u nid k rpkt tp)
+initEnv1_ mapEnv connEnv uEnv nid excColse gen poolSize = do
+  nodeEnv <- mapEnv <$> initEnv_ uEnv nid excColse gen poolSize
+  return NodeEnv1 {..}
 
 
 initEnv1
@@ -173,8 +188,8 @@ initEnv1
   => (NodeEnv u nid k rpkt -> NodeEnv u nid k rpkt)
   -> ConnEnv tp -> u -> nid -> Bool -> IO k -> m (NodeEnv1 u nid k rpkt tp)
 initEnv1 mapEnv connEnv uEnv nid excColse gen = do
-  nodeEnv <- mapEnv <$> initEnv uEnv nid excColse gen
-  return NodeEnv1 {..}
+  poolSize <- newPoolSize 10
+  initEnv1_ mapEnv connEnv uEnv nid excColse gen poolSize
 
 getEnv1
   :: (Monad m, Transport tp)
@@ -230,9 +245,9 @@ busy = do
 
 tryMainLoop
   :: (MonadUnliftIO m, Transport tp, RecvPacket u rpkt, GetPacketId k rpkt, Eq k, Ord k)
-  => (rpkt -> m Bool) -> SessionT u nid k rpkt tp m () -> NodeT u nid k rpkt tp m ()
-tryMainLoop preprocess sessionHandler = do
-  r <- tryAny $ mainLoop preprocess sessionHandler
+  => (rpkt -> m Bool) -> NodeT u nid k rpkt tp m ()
+tryMainLoop preprocess = do
+  r <- tryAny $ mainLoop preprocess
   case r of
     Left err -> do
       case show err of
@@ -247,13 +262,13 @@ tryMainLoop preprocess sessionHandler = do
 
 mainLoop
   :: (MonadUnliftIO m, Transport tp, RecvPacket u rpkt, GetPacketId k rpkt, Eq k, Ord k)
-  => (rpkt -> m Bool) -> SessionT u nid k rpkt tp m () -> NodeT u nid k rpkt tp m ()
-mainLoop preprocess sessionHandler = do
+  => (rpkt -> m Bool) -> NodeT u nid k rpkt tp m ()
+mainLoop preprocess = do
   NodeEnv{..} <- ask
   rpkt <- fromConn (receive uEnv)
   setTimer =<< getEpochTime
   r <- lift $ preprocess rpkt
-  when r $ spawn sessionPool (`tryDoFeed` sessionHandler) rpkt
+  when r $ spawn sessionPool rpkt
 
 
 tryDoFeed
@@ -300,9 +315,11 @@ startNodeT_
   => (rpkt -> m Bool) -> SessionT u nid k rpkt tp m () -> NodeT u nid k rpkt tp m ()
 startNodeT_ preprocess sessionHandler = do
   sess <- runCheckSessionState
+  pool <- asks sessionPool
+  runSessionPool pool (`tryDoFeed` sessionHandler)
   (`runContT` pure) $ callCC $ \exit -> forever $ do
     alive <- lift nodeState
-    if alive then lift $ tryMainLoop preprocess sessionHandler
+    if alive then lift $ tryMainLoop preprocess
              else exit ()
 
   cancel sess

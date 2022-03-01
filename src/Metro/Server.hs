@@ -46,9 +46,10 @@ import           Metro.Class                (GetPacketId, RecvPacket,
                                              Servable (..), Transport,
                                              TransportConfig)
 import           Metro.Conn                 hiding (close)
-import           Metro.Node                 (NodeEnv1, NodeMode (..),
+import           Metro.Node                 (NodeEnv1, NodeMode (..), PoolSize,
                                              SessionMode (..), getNodeId,
-                                             getTimer, initEnv1, runNodeT1,
+                                             getTimer, initEnv1_, newPoolSize,
+                                             runNodeT1, setPoolSize,
                                              startNodeT_, stopNodeT)
 import qualified Metro.Node                 as Node
 import           Metro.Session              (SessionT)
@@ -65,7 +66,7 @@ data ServerEnv serv u nid k rpkt tp = ServerEnv
     , gen          :: IO k
     , keepalive    :: TVar Int64 -- client keepalive seconds
     , defSessTout  :: TVar Int64 -- session timeout seconds
-    , maxPoolSize  :: TVar Int -- max session pool size
+    , maxPoolSize  :: PoolSize -- max session pool size
     , nodeMode     :: NodeMode
     , sessionMode  :: SessionMode
     , serveName    :: String
@@ -109,7 +110,7 @@ initServerEnv sc gen mapTP prepare = do
   onNodeLeave <- newTVarIO Nothing
   keepalive   <- newTVarIO 300
   defSessTout <- newTVarIO 300
-  maxPoolSize <- newTVarIO 10
+  maxPoolSize <- newPoolSize 10
   pure ServerEnv
     { nodeMode     = Multi
     , sessionMode  = SingleAction
@@ -144,7 +145,7 @@ setDefaultSessionTimeout sEnv =
 setMaxSessionPoolSize
   :: MonadIO m => ServerEnv serv u nid k rpkt tp -> Int -> m ()
 setMaxSessionPoolSize sEnv =
-  atomically . writeTVar (maxPoolSize sEnv) . fromIntegral
+  setPoolSize (maxPoolSize sEnv) . fromIntegral
 
 
 setOnExcClose
@@ -228,13 +229,11 @@ handleConn n servID connEnv nid uEnv preprocess sess = do
     connName <- liftIO $ getConnEnvName connEnv
 
     liftIO $ infoM "Metro.Server" (serveName ++ n ++ ": " ++ showNid nid ++ "@" ++ connName ++ " connected")
-    env0 <- initEnv1
+    env0 <- initEnv1_
       (Node.setNodeMode nodeMode
       . Node.setSessionMode sessionMode
-      . Node.setDefaultSessionTimeout defSessTout) connEnv uEnv nid nodeExcClose gen
-
-    maxSize <- readTVarIO maxPoolSize
-    Node.setMaxSessionPoolSize (Node.nodeEnv env0) maxSize
+      . Node.setDefaultSessionTimeout defSessTout)
+        connEnv uEnv nid nodeExcClose gen maxPoolSize
 
     env1 <- atomically $ do
       v <- MapS.lookup nid nodeEnvList
