@@ -1,7 +1,7 @@
 {-# LANGUAGE RecordWildCards #-}
 module Metro.SessionPool
   ( SessionPool
-  , PoolSize
+  , PoolSize (..)
   , newPoolSize
   , setPoolSize
   , newSessionPool
