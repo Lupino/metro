@@ -14,6 +14,7 @@ module Metro.Server
   , Servable (..)
   , getNodeEnvList
   , getServ
+  , getMaxPoolSize
   , serverEnv
   , initServerEnv
 
@@ -318,3 +319,6 @@ getNodeEnvList = nodeEnvList
 
 getServ :: ServerEnv serv u nid k rpkt tp -> serv
 getServ = serveServ
+
+getMaxPoolSize :: ServerEnv serv u nid k rpkt tp -> PoolSize
+getMaxPoolSize = maxPoolSize
