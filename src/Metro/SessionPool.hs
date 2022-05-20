@@ -17,17 +17,17 @@ import           UnliftIO
 
 
 data SessionState rpkt = SessionState
-  { statePacket :: Maybe rpkt
-  , stateIsBusy :: Bool
-  , stateAlive  :: Bool
+  { statePacket :: !(Maybe rpkt)
+  , stateIsBusy :: !Bool
+  , stateAlive  :: !Bool
   }
 
 
 type PoolerState rpkt = TVar (SessionState rpkt)
 
 data SessionPooler rpkt = SessionPooler
-  { poolerState :: PoolerState rpkt
-  , poolerIO    :: Async ()
+  { poolerState :: !(PoolerState rpkt)
+  , poolerIO    :: !(Async ())
   }
 
 
@@ -45,13 +45,13 @@ setPoolSize (PoolSize h) = atomically . writeTVar h
 
 
 data SessionPool rpkt = SessionPool
-  { poolerList  :: TVar [SessionPooler rpkt]
-  , freeStates  :: FreeStates rpkt
-  , packetList  :: TVar [rpkt]
-  , maxPoolSize :: PoolSize
-  , queue       :: TQueue (PoolerState rpkt)
-  , nodeStatus  :: TVar Bool
-  , myIO        :: TVar (Maybe (Async ()))
+  { poolerList  :: !(TVar [SessionPooler rpkt])
+  , freeStates  :: !(FreeStates rpkt)
+  , packetList  :: !(TVar [rpkt])
+  , maxPoolSize :: !PoolSize
+  , queue       :: !(TQueue (PoolerState rpkt))
+  , nodeStatus  :: !(TVar Bool)
+  , myIO        :: !(TVar (Maybe (Async ())))
   }
 
 
@@ -73,7 +73,7 @@ getFreeState states = do
   case ss of
     [] -> pure Nothing
     (x:xs) -> do
-      writeTVar states xs
+      writeTVar states $! xs
       pure $ Just x
 
 
@@ -101,7 +101,7 @@ startPoolerIO packets states state work =
           modifyTVar' state $ \s -> s
             { statePacket = Just x
             }
-          writeTVar packets xs
+          writeTVar packets $! xs
 
     st <- stateAlive <$> readTVarIO state
     unless st $ exit ()
@@ -153,7 +153,7 @@ runSessionPool SessionPool {..} work = do
         io <- lift $ startPoolerIO packetList freeStates state work
         atomically $ modifyTVar' poolerList (SessionPooler state io:)
 
-  atomically . writeTVar myIO $ Just io
+  atomically . writeTVar myIO $! Just io
 
 
 close :: MonadIO m => SessionPool rpkt -> m ()
