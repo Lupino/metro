@@ -128,13 +128,15 @@ spawn SessionPool {..} rpkt = atomically $ do
           writeTQueue queue state
 
         else do
-          modifyTVar' packetList (rpkt:)
-          when (size > maxSize) $ do
-            poolers <- readTVar poolerList
-            writeTVar poolerList $! drop (size - maxSize) poolers
-            forM_ (take (size - maxSize) poolers) $ \p ->
-              modifyTVar' (poolerState p) $ \st -> st {stateAlive = False}
-
+          pl <- length <$> readTVar packetList
+          if pl > maxSize then retrySTM
+                          else do
+            modifyTVar' packetList (rpkt:)
+            when (size > maxSize) $ do
+              poolers <- readTVar poolerList
+              writeTVar poolerList $! drop (size - maxSize) poolers
+              forM_ (take (size - maxSize) poolers) $ \p ->
+                modifyTVar' (poolerState p) $ \st -> st {stateAlive = False}
 
 
 runSessionPool
