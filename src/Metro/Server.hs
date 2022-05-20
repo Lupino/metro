@@ -111,7 +111,7 @@ initServerEnv sc gen mapTP prepare = do
   onNodeLeave <- newTVarIO Nothing
   keepalive   <- newTVarIO 300
   defSessTout <- newTVarIO 300
-  maxPoolSize <- newPoolSize 10
+  maxPoolSize <- newPoolSize 2
   pure ServerEnv
     { nodeMode     = Multi
     , sessionMode  = SingleAction
