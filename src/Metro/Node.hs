@@ -61,10 +61,10 @@ import           Control.Monad.Cont         (callCC, runContT)
 import           Control.Monad.Reader.Class (MonadReader (ask), asks)
 import           Control.Monad.Trans.Class  (MonadTrans (..))
 import           Control.Monad.Trans.Reader (ReaderT (..), runReaderT)
+import           Data.Int                   (Int64)
 import           Data.IOMap                 (IOMap)
 import qualified Data.IOMap                 as Map (delete, elems, empty,
                                                     insert, lookup, size)
-import           Data.Int                   (Int64)
 import           Data.Maybe                 (fromMaybe, isJust)
 import           Metro.Class                (GetPacketId, RecvPacket,
                                              SendPacket, SetPacketId, Transport,

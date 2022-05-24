@@ -39,10 +39,10 @@ import           Control.Monad.Reader.Class (MonadReader (ask), asks)
 import           Control.Monad.Trans.Class  (MonadTrans, lift)
 import           Control.Monad.Trans.Reader (ReaderT (..), runReaderT)
 import           Data.Either                (isLeft)
-import           Data.IOMap                 (IOMap)
-import qualified Data.IOMap                 as Map (delete, elems, empty)
-import qualified Data.IOMap.STM             as MapS (insert, lookup)
 import           Data.Int                   (Int64)
+import           Data.IOMap                 (IOMap)
+import qualified Data.IOMap                 as IOMap (delete, elems, empty)
+import qualified Data.IOMap.STM             as IOMapS (insert, lookup)
 import           Metro.Class                (GetPacketId, RecvPacket,
                                              Servable (..), Transport,
                                              TransportConfig)
@@ -107,7 +107,7 @@ initServerEnv
 initServerEnv sc gen mapTP prepare = do
   serveServ   <- newServer sc
   serveState  <- newTVarIO True
-  nodeEnvList <- Map.empty
+  nodeEnvList <- IOMap.empty
   onNodeLeave <- newTVarIO Nothing
   keepalive   <- newTVarIO 300
   defSessTout <- newTVarIO 300
@@ -237,8 +237,8 @@ handleConn n servID connEnv nid uEnv preprocess sess = do
         connEnv uEnv nid nodeExcClose gen maxPoolSize
 
     env1 <- atomically $ do
-      v <- MapS.lookup nid nodeEnvList
-      MapS.insert nid env0 nodeEnvList
+      v <- IOMapS.lookup nid nodeEnvList
+      IOMapS.insert nid env0 nodeEnvList
       pure v
 
     mapM_ (`runNodeT1` stopNodeT) env1
@@ -296,7 +296,7 @@ runCheckNodeState alive envList = void . async . forever $ do
                else return tt
 
   threadDelay $ fromIntegral t * 1000 * 1000
-  mapM_ (checkAlive envList) =<< Map.elems envList
+  mapM_ (checkAlive envList) =<< IOMap.elems envList
 
   where checkAlive
           :: (MonadUnliftIO m, Eq nid, Ord nid, Transport tp)
@@ -309,7 +309,7 @@ runCheckNodeState alive envList = void . async . forever $ do
               when (now > expiredAt) $ do
                 nid <- getNodeId
                 stopNodeT
-                Map.delete nid ref
+                IOMap.delete nid ref
 
 serverEnv :: Monad m => ServerT serv u nid k rpkt tp m (ServerEnv serv u nid k rpkt tp)
 serverEnv = ask
