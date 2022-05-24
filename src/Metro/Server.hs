@@ -246,6 +246,7 @@ handleConn n servID connEnv nid uEnv preprocess sess = do
     io <- async $ do
       onConnEnter serveServ servID
       lift . runNodeT1 env0 $ startNodeT_ preprocess sess
+      IOMap.delete nid nodeEnvList
       onConnLeave serveServ servID
       nodeLeave <- readTVarIO onNodeLeave
       case nodeLeave of
