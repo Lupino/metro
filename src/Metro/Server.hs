@@ -50,8 +50,9 @@ import           Metro.Conn                 hiding (close)
 import           Metro.Node                 (NodeEnv1, NodeMode (..), PoolSize,
                                              SessionMode (..), getNodeId,
                                              getTimer, initEnv1_, newPoolSize,
-                                             runNodeT1, setPoolSize,
-                                             startNodeT_, stopNodeT)
+                                             runCheckSessionState, runNodeT1,
+                                             setPoolSize, startNodeT_,
+                                             stopNodeT)
 import qualified Metro.Node                 as Node
 import           Metro.Session              (SessionT)
 import           Metro.Utils                (getEpochTime)
@@ -288,29 +289,27 @@ stopServerT = do
   liftIO $ servClose serveServ
 
 runCheckNodeState
-  :: (MonadUnliftIO m, Eq nid, Ord nid, Transport tp)
+  :: (MonadUnliftIO m, Eq nid, Ord nid, Transport tp, Eq k, Ord k)
   => TVar Int64 -> IOMap nid (NodeEnv1 u nid k rpkt tp) -> m ()
 runCheckNodeState alive envList = void . async . forever $ do
-  t <- atomically $ do
-    tt <- readTVar alive
-    if tt == 0 then retrySTM
-               else return tt
+  threadDelay 10000000 -- 10 seconds
+  mOnCheckNodeState <- readTVarIO tOnCheckNodeState
+  mapM_ (checkNodeState mOnCheckNodeState envList) =<< IOMap.elems envList
 
-  threadDelay $ fromIntegral t * 1000 * 1000
-  mapM_ (checkAlive envList) =<< IOMap.elems envList
-
-  where checkAlive
-          :: (MonadUnliftIO m, Eq nid, Ord nid, Transport tp)
+  where checkNodeState
+          :: (MonadUnliftIO m, Eq nid, Ord nid, Transport tp, Eq k, Ord k)
           => IOMap nid (NodeEnv1 u nid k rpkt tp)
           -> NodeEnv1 u nid k rpkt tp -> m ()
-        checkAlive ref env1 = runNodeT1 env1 $ do
-              t <- readTVarIO alive
-              expiredAt <- (t +) <$> getTimer
-              now <- getEpochTime
-              when (now > expiredAt) $ do
-                nid <- getNodeId
-                stopNodeT
-                IOMap.delete nid ref
+        checkNodeState ref env1 = runNodeT1 env1 $ do
+          runCheckSessionState
+          t <- readTVarIO alive
+          when (t < 0) $ do
+            nid <- getNodeId
+            expiredAt <- (t +) <$> getTimer
+            now <- getEpochTime
+            when (now > expiredAt) $ do
+              stopNodeT
+              IOMap.delete nid ref
 
 serverEnv :: Monad m => ServerT serv u nid k rpkt tp m (ServerEnv serv u nid k rpkt tp)
 serverEnv = ask

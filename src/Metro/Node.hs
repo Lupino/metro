@@ -35,6 +35,7 @@ module Metro.Node
   , newSessionEnv
   , nextSessionId
   , runSessionT_
+  , runCheckSessionState
 
   , busy
 
@@ -314,7 +315,6 @@ startNodeT_
   :: (MonadUnliftIO m, Transport tp, RecvPacket u rpkt, GetPacketId k rpkt, Eq k, Ord k)
   => (rpkt -> m Bool) -> SessionT u nid k rpkt tp m () -> NodeT u nid k rpkt tp m ()
 startNodeT_ preprocess sessionHandler = do
-  sess <- runCheckSessionState
   pool <- asks sessionPool
   runSessionPool pool (`tryDoFeed` sessionHandler)
   (`runContT` pure) $ callCC $ \exit -> forever $ do
@@ -322,7 +322,6 @@ startNodeT_ preprocess sessionHandler = do
     if alive then lift $ tryMainLoop preprocess
              else exit ()
 
-  cancel sess
   doFeedError
 
 nodeState :: MonadIO m => NodeT u nid k rpkt tp m Bool
@@ -379,17 +378,15 @@ setTimer t = do
 getNodeId :: Monad m => NodeT n nid k rpkt tp m nid
 getNodeId = asks nodeId
 
-runCheckSessionState :: (MonadUnliftIO m, Eq k, Ord k) => NodeT u nid k rpkt tp m (Async ())
+runCheckSessionState :: (MonadUnliftIO m, Eq k, Ord k) => NodeT u nid k rpkt tp m ()
 runCheckSessionState = do
   sessList <- asks sessionList
-  async . forever $ do
-    threadDelay $ 1000 * 1000 * 10  -- 10 seconds
-    mapM_ (checkAlive sessList) =<< Map.elems sessList
+  mapM_ (checkSessionState sessList) =<< Map.elems sessList
 
-  where checkAlive
+  where checkSessionState
           :: (MonadUnliftIO m, Eq k, Ord k)
           => IOMap k (SessionEnv u nid k rpkt) -> SessionEnv u nid k rpkt -> NodeT u nid k rpkt tp m ()
-        checkAlive sessList sessEnv =
+        checkSessionState sessList sessEnv =
           runSessionT_ sessEnv $ do
             to <- isTimeout
             when to $ do
