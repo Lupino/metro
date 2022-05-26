@@ -102,7 +102,6 @@ data NodeEnv u nid k rpkt = NodeEnv
     , nodeId      :: nid
     , onExcColse  :: Bool
     , sessTimeout :: TVar Int64
-    , onNodeLeave :: TVar (Maybe (u -> IO ()))
     , sessionPool :: SessionPool rpkt
     }
 
@@ -144,7 +143,6 @@ initEnv_ uEnv nodeId onExcColse sessionGen poolSize = do
   nodeSession <- newTVarIO Nothing
   sessionList <- Map.empty
   nodeTimer   <- newTVarIO =<< getEpochTime
-  onNodeLeave <- newTVarIO Nothing
   sessTimeout <- newTVarIO 300
   sessionPool <- newSessionPool poolSize nodeStatus
   pure NodeEnv

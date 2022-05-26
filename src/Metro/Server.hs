@@ -27,6 +27,7 @@ module Metro.Server
 
   , setOnExcClose
   , setOnNodeLeave
+  , setOnCheckNodeState
 
   , runServerT
   , stopServerT
@@ -48,7 +49,7 @@ import           Metro.Class                (GetPacketId, RecvPacket,
                                              TransportConfig)
 import           Metro.Conn                 hiding (close)
 import           Metro.Node                 (NodeEnv1, NodeMode (..), PoolSize,
-                                             SessionMode (..), getNodeId,
+                                             SessionMode (..), env, getNodeId,
                                              getTimer, initEnv1_, newPoolSize,
                                              runCheckSessionState, runNodeT1,
                                              setPoolSize, startNodeT_,
@@ -61,20 +62,21 @@ import           UnliftIO
 import           UnliftIO.Concurrent        (threadDelay)
 
 data ServerEnv serv u nid k rpkt tp = ServerEnv
-    { serveServ    :: serv
-    , serveState   :: TVar Bool
-    , nodeEnvList  :: IOMap nid (NodeEnv1 u nid k rpkt tp)
-    , prepare      :: serv -> SID serv -> ConnEnv tp -> IO (Maybe (nid, u))
-    , gen          :: IO k
-    , keepalive    :: TVar Int64 -- client keepalive seconds
-    , defSessTout  :: TVar Int64 -- session timeout seconds
-    , maxPoolSize  :: PoolSize -- max session pool size
-    , nodeMode     :: NodeMode
-    , sessionMode  :: SessionMode
-    , serveName    :: String
-    , onNodeLeave  :: TVar (Maybe (nid -> u -> IO ()))
-    , nodeExcClose :: Bool
-    , mapTP        :: TransportConfig (STP serv) -> TransportConfig tp
+    { serveServ        :: serv
+    , serveState       :: TVar Bool
+    , nodeEnvList      :: IOMap nid (NodeEnv1 u nid k rpkt tp)
+    , prepare          :: serv -> SID serv -> ConnEnv tp -> IO (Maybe (nid, u))
+    , gen              :: IO k
+    , keepalive        :: TVar Int64 -- client keepalive seconds
+    , defSessTout      :: TVar Int64 -- session timeout seconds
+    , maxPoolSize      :: PoolSize -- max session pool size
+    , nodeMode         :: NodeMode
+    , sessionMode      :: SessionMode
+    , serveName        :: String
+    , onNodeLeave      :: TVar (Maybe (nid -> u -> IO ()))
+    , onCheckNodeState :: TVar (Maybe (nid -> u -> IO ()))
+    , nodeExcClose     :: Bool
+    , mapTP            :: TransportConfig (STP serv) -> TransportConfig tp
     }
 
 
@@ -106,13 +108,14 @@ initServerEnv
   -> (serv -> SID serv -> ConnEnv tp -> IO (Maybe (nid, u)))
   -> m (ServerEnv serv u nid k rpkt tp)
 initServerEnv sc gen mapTP prepare = do
-  serveServ   <- newServer sc
-  serveState  <- newTVarIO True
-  nodeEnvList <- IOMap.empty
-  onNodeLeave <- newTVarIO Nothing
-  keepalive   <- newTVarIO 300
-  defSessTout <- newTVarIO 300
-  maxPoolSize <- newPoolSize 2
+  serveServ        <- newServer sc
+  serveState       <- newTVarIO True
+  nodeEnvList      <- IOMap.empty
+  onNodeLeave      <- newTVarIO Nothing
+  onCheckNodeState <- newTVarIO Nothing
+  keepalive        <- newTVarIO 300
+  defSessTout      <- newTVarIO 300
+  maxPoolSize      <- newPoolSize 2
   pure ServerEnv
     { nodeMode     = Multi
     , sessionMode  = SingleAction
@@ -156,6 +159,9 @@ setOnExcClose n sEnv = sEnv {nodeExcClose = n}
 
 setOnNodeLeave :: MonadIO m => ServerEnv serv u nid k rpkt tp -> (nid -> u -> IO ()) -> m ()
 setOnNodeLeave sEnv = atomically . writeTVar (onNodeLeave sEnv) . Just
+
+setOnCheckNodeState :: MonadIO m => ServerEnv serv u nid k rpkt tp -> (nid -> u -> IO ()) -> m ()
+setOnCheckNodeState sEnv = atomically . writeTVar (onCheckNodeState sEnv) . Just
 
 serveForever
   :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Ord nid, Eq k, Ord k, GetPacketId k rpkt, RecvPacket u rpkt, Servable serv)
@@ -278,7 +284,7 @@ startServer_
   -> SessionT u nid k rpkt tp m ()
   -> m ()
 startServer_ sEnv preprocess sess = do
-  runCheckNodeState (keepalive sEnv) (nodeEnvList sEnv)
+  runCheckNodeState (onCheckNodeState sEnv) (keepalive sEnv) (nodeEnvList sEnv)
   runServerT sEnv $ serveForever preprocess sess
   liftIO $ servClose $ serveServ sEnv
 
@@ -290,21 +296,28 @@ stopServerT = do
 
 runCheckNodeState
   :: (MonadUnliftIO m, Eq nid, Ord nid, Transport tp, Eq k, Ord k)
-  => TVar Int64 -> IOMap nid (NodeEnv1 u nid k rpkt tp) -> m ()
-runCheckNodeState alive envList = void . async . forever $ do
+  => TVar (Maybe (nid -> u -> IO ()))
+  -> TVar Int64 -> IOMap nid (NodeEnv1 u nid k rpkt tp) -> m ()
+runCheckNodeState tOnCheckNodeState alive envList = void . async . forever $ do
   threadDelay 10000000 -- 10 seconds
   mOnCheckNodeState <- readTVarIO tOnCheckNodeState
   mapM_ (checkNodeState mOnCheckNodeState envList) =<< IOMap.elems envList
 
   where checkNodeState
           :: (MonadUnliftIO m, Eq nid, Ord nid, Transport tp, Eq k, Ord k)
-          => IOMap nid (NodeEnv1 u nid k rpkt tp)
+          => Maybe (nid -> u -> IO ())
+          -> IOMap nid (NodeEnv1 u nid k rpkt tp)
           -> NodeEnv1 u nid k rpkt tp -> m ()
-        checkNodeState ref env1 = runNodeT1 env1 $ do
+        checkNodeState mOnCheckNodeState ref env1 = runNodeT1 env1 $ do
+          nid <- getNodeId
           runCheckSessionState
+          case mOnCheckNodeState of
+            Nothing -> pure ()
+            Just onCheckNodeStateEvent -> do
+              u <- env
+              liftIO $ onCheckNodeStateEvent nid u
           t <- readTVarIO alive
           when (t < 0) $ do
-            nid <- getNodeId
             expiredAt <- (t +) <$> getTimer
             now <- getEpochTime
             when (now > expiredAt) $ do
