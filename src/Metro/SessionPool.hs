@@ -11,8 +11,8 @@ module Metro.SessionPool
   ) where
 
 
-import           Control.Monad      (forM_, forever, unless, when)
-import           Control.Monad.Cont (callCC, lift, runContT)
+import           Control.Monad (forM_, unless, when)
+import           Metro.Utils   (foreverExit, lift)
 import           UnliftIO
 
 
@@ -79,7 +79,7 @@ getFreeState states = do
 
 startPoolerIO :: MonadUnliftIO m => TVar [rpkt] -> FreeStates rpkt -> PoolerState rpkt -> (rpkt -> m ()) -> m (Async ())
 startPoolerIO packets states state work =
-  async $ (`runContT` pure) $ callCC $ \exit -> forever $ do
+  async $ foreverExit $ \exit -> do
     rpkt <- atomically
       $ readTVar state
       >>= maybe retrySTM pure . statePacket
@@ -143,7 +143,7 @@ runSessionPool
   :: MonadUnliftIO m
   => SessionPool rpkt -> (rpkt -> m ()) -> m ()
 runSessionPool SessionPool {..} work = do
-  io <- async $ (`runContT` pure) $ callCC $ \exit -> forever $ do
+  io <- async $ foreverExit $ \exit -> do
     mState <- atomically $ do
       st <- readTVar nodeStatus
       if st then Just <$> readTQueue queue

@@ -58,7 +58,6 @@ module Metro.Node
   ) where
 
 import           Control.Monad              (forM, forever, when)
-import           Control.Monad.Cont         (callCC, runContT)
 import           Control.Monad.Reader.Class (MonadReader (ask), asks)
 import           Control.Monad.Trans.Class  (MonadTrans (..))
 import           Control.Monad.Trans.Reader (ReaderT (..), runReaderT)
@@ -77,7 +76,7 @@ import           Metro.Session              (SessionEnv (sessionId), SessionT,
 import qualified Metro.Session              as S (newSessionEnv, receive, send)
 import           Metro.SessionPool          hiding (close)
 import qualified Metro.SessionPool          as Pool (close)
-import           Metro.Utils                (getEpochTime)
+import           Metro.Utils                (foreverExit, getEpochTime)
 import           System.Log.Logger          (errorM)
 import           UnliftIO
 import           UnliftIO.Concurrent        (threadDelay)
@@ -315,7 +314,7 @@ startNodeT_
 startNodeT_ preprocess sessionHandler = do
   pool <- asks sessionPool
   runSessionPool pool (`tryDoFeed` sessionHandler)
-  (`runContT` pure) $ callCC $ \exit -> forever $ do
+  foreverExit $ \exit -> do
     alive <- lift nodeState
     if alive then lift $ tryMainLoop preprocess
              else exit ()

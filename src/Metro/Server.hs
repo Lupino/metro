@@ -35,7 +35,6 @@ module Metro.Server
   ) where
 
 import           Control.Monad              (forM_, forever, unless, void, when)
-import           Control.Monad.Cont         (callCC, runContT)
 import           Control.Monad.Reader.Class (MonadReader (ask), asks)
 import           Control.Monad.Trans.Class  (MonadTrans, lift)
 import           Control.Monad.Trans.Reader (ReaderT (..), runReaderT)
@@ -56,7 +55,7 @@ import           Metro.Node                 (NodeEnv1, NodeMode (..), PoolSize,
                                              stopNodeT)
 import qualified Metro.Node                 as Node
 import           Metro.Session              (SessionT)
-import           Metro.Utils                (getEpochTime)
+import           Metro.Utils                (foreverExit, getEpochTime)
 import           System.Log.Logger          (errorM, infoM)
 import           UnliftIO
 import           UnliftIO.Concurrent        (threadDelay)
@@ -172,7 +171,7 @@ serveForever preprocess sess = do
   name <- asks serveName
   liftIO $ infoM "Metro.Server" $ name ++ "Server started"
   state <- asks serveState
-  (`runContT` pure) $ callCC $ \exit -> forever $ do
+  foreverExit $ \exit -> do
     e <- lift $ tryServeOnce preprocess sess
     when (isLeft e) $ exit ()
     alive <- readTVarIO state

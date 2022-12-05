@@ -2,10 +2,14 @@ module Metro.Utils
   ( getEpochTime
   , setupLog
   , recvEnough
+  , foreverExit
+  , lift
   ) where
 
 
-import           Control.Monad             (when)
+import           Control.Monad             (forever, when)
+import           Control.Monad.Cont        (ContT, callCC, runContT)
+import           Control.Monad.Trans.Class (lift)
 import           Data.ByteString           (ByteString)
 import qualified Data.ByteString           as B (concat, drop, empty, length,
                                                  null, take)
@@ -56,3 +60,6 @@ recvEnough buffer tp nbytes = do
                                 else do
                                   otherBuf <- readBuf (nb - B.length buf)
                                   return $! B.concat [ buf, otherBuf ]
+
+foreverExit :: Applicative m => ((r -> ContT r m ()) -> ContT r m ()) -> m r
+foreverExit io = (`runContT` pure) $ callCC $ \exit -> forever $ io exit
