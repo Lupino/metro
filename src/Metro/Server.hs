@@ -252,13 +252,12 @@ handleConn n servID connEnv nid uEnv preprocess sess = do
     io <- async $ do
       onConnEnter serveServ servID
       lift . runNodeT1 env0 $ startNodeT_ preprocess sess
-      IOMap.delete nid nodeEnvList
       onConnLeave serveServ servID
+      liftIO $ infoM "Metro.Server" (serveName ++ n ++ ": " ++ showNid nid ++ " disconnected")
       nodeLeave <- readTVarIO onNodeLeave
       case nodeLeave of
         Nothing -> pure ()
         Just f  -> liftIO $ f nid uEnv
-      liftIO $ infoM "Metro.Server" (serveName ++ n ++ ": " ++ showNid nid ++ " disconnected")
 
     return (env0, io)
 
