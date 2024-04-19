@@ -28,8 +28,8 @@ library:
   - bytestring
   - metro
   - tls
-  - x509-validation
-  - x509
-  - x509-store
+  - crypton-x509-validation
+  - crypton-x509
+  - crypton-x509-store
   - data-default-class
   - pem

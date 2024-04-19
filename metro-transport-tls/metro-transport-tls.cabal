@@ -1,10 +1,10 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.33.0.
+-- This file has been generated from package.yaml by hpack version 0.36.0.
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 4800ce3a672404ff6894c0407fa75e3d83ebb0d5c936fd2d651342365244eebb
+-- hash: 000f7ca5d2837a51a385e4638c6ed748a68785431e0a85ff7b639bfef84bc970
 
 name:           metro-transport-tls
 version:        0.1.0.0
@@ -38,11 +38,11 @@ library
   build-depends:
       base >=4.7 && <5
     , bytestring
+    , crypton-x509
+    , crypton-x509-store
+    , crypton-x509-validation
     , data-default-class
     , metro
     , pem
     , tls
-    , x509
-    , x509-store
-    , x509-validation
   default-language: Haskell2010
