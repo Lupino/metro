@@ -79,7 +79,8 @@ import           Control.Concurrent.STM (STM, TVar, modifyTVar', newTVar,
 import           Data.Map.Strict        (Map)
 import qualified Data.Map.Strict        as Map
 import qualified Data.Set.Internal      as Set
-import           Prelude                hiding (foldl, foldr, lookup, null)
+import           Prelude                hiding (foldl, foldl', foldr, lookup,
+                                         null)
 
 newtype IOMap k v = IOMap (TVar (Map k v))
 
