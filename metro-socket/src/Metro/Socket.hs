@@ -50,7 +50,7 @@ connectTo host serv = do
   where
   tryToConnect addr =
     bracketOnError
-        (socket (addrFamily addr) (addrSocketType addr) (addrProtocol addr))
+        (openSocket addr)
         close  -- only done if there's an error
         (\sock -> do
           S.connect sock (addrAddress addr)
@@ -91,17 +91,21 @@ listenOn host serv = do
   -- Choose an IPv6 socket if exists.  This ensures the socket can
   -- handle both IPv4 and IPv6 if v6only is false.
   let addrs' = filter (\x -> addrFamily x == AF_INET6) addrs
-      addr = if null addrs' then head addrs else head addrs'
-  bracketOnError
-      (socket (addrFamily addr) (addrSocketType addr) (addrProtocol addr))
-      close
-      (\sock -> do
+      addr = getOneAddr addrs' addrs
+  bracketOnError (openSocket addr) close (doBind addr)
+
+  where doBind :: AddrInfo -> Socket -> IO Socket
+        doBind addr sock = do
           setSocketOption sock ReuseAddr 1
           setSocketOption sock NoDelay   1
           S.bind sock (addrAddress addr)
           S.listen sock maxListenQueue
           return sock
-      )
+
+        getOneAddr :: [AddrInfo] -> [AddrInfo] -> AddrInfo
+        getOneAddr [] []    = error "Metro.Socket: listen: Address is invalid"
+        getOneAddr (x:_) _  = x
+        getOneAddr [] (y:_) = y
 
 listen :: String -> IO Socket
 listen port =
@@ -115,7 +119,7 @@ listen port =
       case e of
         Left _ -> removeFile sockFile
         Right _ -> do
-          putStrLn "periodicd: bind: resource busy (Address already in use)"
+          putStrLn "Metro.Socket: bind: resource busy (Address already in use)"
           exitFailure
     listenOnFile sockFile
 
@@ -143,7 +147,7 @@ bindTo hostPort = do
   where
   tryToConnect addr =
     bracketOnError
-        (socket (addrFamily addr) (addrSocketType addr) (addrProtocol addr))
+        (openSocket addr)
         close  -- only done if there's an error
         (\sock -> do
           setSocketOption sock ReuseAddr 1
