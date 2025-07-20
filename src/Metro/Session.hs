@@ -105,13 +105,14 @@ receive = do
   st <- fromConn statusTVar
   atomically $ do
     v <- readTVar reader
-    if null v then do
-      s <- readTVar st
-      if s then retrySTM
-           else pure Nothing
-    else do
-      writeTVar reader $! tail v
-      pure $ head v
+    case v of
+      [] -> do
+        s <- readTVar st
+        if s then retrySTM
+             else pure Nothing
+      (x:xs) -> do
+        writeTVar reader xs
+        pure x
 
 readerSize :: MonadIO m => SessionT u nid k rpkt tp m Int
 readerSize = fmap length $ readTVarIO =<< asks sessionData
