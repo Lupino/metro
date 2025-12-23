@@ -5,11 +5,12 @@
 module Metro.TP.RSA
   ( RSA
   , rsa
+  , generateKeyPair
   ) where
 
 import           Control.Monad            (void, when)
 import           Crypto.Hash              (Digest, SHA256 (..), hash)
-import           Crypto.PubKey.RSA        (PrivateKey, PublicKey)
+import           Crypto.PubKey.RSA        (PrivateKey, PublicKey, generate)
 import           Crypto.PubKey.RSA.PKCS15 (decryptSafer, encrypt)
 import qualified Crypto.PubKey.RSA.Types  as RSA
 import           Data.ASN1.BinaryEncoding
@@ -21,7 +22,8 @@ import qualified Data.ByteString          as BS
 import           Data.Either              (fromRight)
 import           Data.List                (find, isSuffixOf)
 import           Data.Maybe               (listToMaybe)
-import           Data.PEM                 (PEM (..), pemContent, pemParseBS)
+import           Data.PEM                 (PEM (..), pemContent, pemParseBS,
+                                           pemWriteBS)
 import           Metro.Class              (Transport (..))
 import           Metro.Utils              (recvEnough)
 import           System.Directory         (doesFileExist, listDirectory)
@@ -192,8 +194,7 @@ loadPublicKeys publicKeyFileOrDir = do
 publicKeyFingerprint :: PublicKey -> BS.ByteString
 publicKeyFingerprint key = convert (hash asn1Bytes :: Digest SHA256)
   where
-    asn1Bytes = encodeASN1' DER asn1
-    asn1 = [Start Sequence, IntVal (RSA.public_n key), IntVal (RSA.public_e key), End Sequence]
+    asn1Bytes = publicKeyToASN1 key
 
 
 -- Search for a public key by fingerprint
@@ -217,3 +218,56 @@ sendPublicKeyFingerprint privKey pubKey tp = do
   case eChallengeMsg of
     Left _   -> pure ()
     Right bs -> sendData tp bs
+
+
+-- Convert RSA Private Key to PEM format
+privateKeyToPEM :: PrivateKey -> BS.ByteString
+privateKeyToPEM key = pemWriteBS pem
+  where
+    pem = PEM "RSA PRIVATE KEY" [] asn1Bytes
+    asn1Bytes = encodeASN1' DER asn1
+    asn1 = [Start Sequence]
+        ++ [IntVal 0]  -- version
+        ++ [IntVal (RSA.private_n key)]
+        ++ [IntVal (RSA.public_e $ RSA.private_pub key)]
+        ++ [IntVal (RSA.private_d key)]
+        ++ [IntVal (RSA.private_p key)]
+        ++ [IntVal (RSA.private_q key)]
+        ++ [IntVal (RSA.private_dP key)]
+        ++ [IntVal (RSA.private_dQ key)]
+        ++ [IntVal (RSA.private_qinv key)]
+        ++ [End Sequence]
+
+
+publicKeyToASN1 :: PublicKey -> BS.ByteString
+publicKeyToASN1 key = encodeASN1' DER asn1
+  where
+    asn1 = [Start Sequence]
+        ++ [IntVal (RSA.public_n key)]
+        ++ [IntVal (RSA.public_e key)]
+        ++ [End Sequence]
+
+
+-- Convert RSA Public Key to PEM format
+publicKeyToPEM :: PublicKey -> BS.ByteString
+publicKeyToPEM key = pemWriteBS pem
+  where
+    pem = PEM "RSA PUBLIC KEY" [] asn1Bytes
+    asn1Bytes = publicKeyToASN1 key
+
+-- Example usage: Write keys to files
+writePrivateKeyPEM :: FilePath -> PrivateKey -> IO ()
+writePrivateKeyPEM path key = BS.writeFile path (privateKeyToPEM key)
+
+writePublicKeyPEM :: FilePath -> PublicKey -> IO ()
+writePublicKeyPEM path key = BS.writeFile path (publicKeyToPEM key)
+
+generateKeyPair :: FilePath -> Int -> IO ()
+generateKeyPair prefix size = do
+  (pubKey, privKey) <- generate size 65537
+
+  writePrivateKeyPEM privFile privKey
+  writePublicKeyPEM pubFile pubKey
+  putStrLn $ "Keys written to " ++ privFile ++ " and " ++ pubFile
+  where privFile = prefix ++ "_private_key.pem"
+        pubFile  = prefix ++ "_public_key.pem"
