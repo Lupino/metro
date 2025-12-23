@@ -29,8 +29,15 @@ library:
   - binary
   - metro
   - unliftio
-  - cryptonite
+  - crypton
   - text
+
+  - asn1-encoding
+  - pem
+  - asn1-types
+  - directory
+  - filepath
+  - memory
 
 tests:
   metro-transport-crypto-test:
@@ -45,5 +52,5 @@ tests:
     - metro
     - QuickCheck
     - quickcheck-instances
-    - cryptonite
+    - crypton
     - bytestring
