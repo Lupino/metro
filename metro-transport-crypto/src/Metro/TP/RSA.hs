@@ -8,19 +8,21 @@ module Metro.TP.RSA
   , generateKeyPair
   ) where
 
-import           Control.Monad            (unless)
+import           Control.Exception        (displayException)
+import           Control.Monad            (unless, (<=<))
 import           Crypto.Hash              (Digest, SHA256 (..), hash)
 import           Crypto.PubKey.RSA        (PrivateKey, PublicKey, generate)
-import           Crypto.PubKey.RSA.OAEP   (decryptSafer, defaultOAEPParams,
-                                           encrypt)
+import           Crypto.PubKey.RSA.OAEP   (OAEPParams, decryptSafer,
+                                           defaultOAEPParams, encrypt)
 import qualified Crypto.PubKey.RSA.Types  as RSA
-import           Data.ASN1.BinaryEncoding
-import           Data.ASN1.Encoding
+import           Data.ASN1.BinaryEncoding (DER (..))
+import           Data.ASN1.Encoding       (decodeASN1', encodeASN1')
 import           Data.ASN1.Types
+import           Data.Bifunctor           (first)
 import           Data.ByteArray           (convert)
 import           Data.ByteString          (ByteString)
 import qualified Data.ByteString          as BS
-import           Data.Either              (fromRight)
+import           Data.Either              (fromRight, isRight)
 import           Data.List                (find, isSuffixOf)
 import           Data.Maybe               (listToMaybe)
 import           Data.PEM                 (PEM (..), pemContent, pemParseBS,
@@ -29,11 +31,14 @@ import           Metro.Class              (Transport (..))
 import           Metro.Utils              (recvEnough)
 import           System.Directory         (doesFileExist, listDirectory)
 import           System.FilePath          ((</>))
-import           UnliftIO
+import           UnliftIO                 (TVar, newTVarIO, throwIO, tryAny)
 
--- OAEP 配置：使用 SHA256 算法。
--- SHA256 的 OAEP 填充开销为 66 字节（2 * 32 + 2）。
+-- | OAEP Configuration: Using SHA256.
+-- The overhead for SHA256 OAEP padding is 66 bytes (2 * 32 + 2).
+oaepParams :: OAEPParams SHA256 ByteString ByteString
 oaepParams = defaultOAEPParams SHA256
+
+oaepSize :: Int
 oaepSize = 66
 
 data RSA tp = RSA
@@ -48,104 +53,152 @@ instance (Transport tp) => Transport (RSA tp) where
 
   newTP (RSAConfig privateKey publicKeyFileOrDir isClient config) = do
     readBuffer <- newTVarIO BS.empty
-    tp <- newTP config
+    baseTp     <- newTP config
 
-    -- 握手逻辑
-    mPubKey <- if isClient
-      then do -- 客户端：加载公钥并发送指纹
-        keys <- loadPublicKeys publicKeyFileOrDir
-        case listToMaybe keys of
-          Nothing -> do
-            closeTP tp
-            throwIO $ userError "RSA Config: No public keys found for client."
-          Just pub -> do
-            sendPublicKeyFingerprint privateKey pub tp
-            handshake readBuffer privateKey publicKeyFileOrDir tp
-      else do -- 服务端：校验客户端指纹并回应
-        p <- handshake readBuffer privateKey publicKeyFileOrDir tp
-        case p of
-          Nothing -> pure Nothing
-          Just pub -> do
-            sendPublicKeyFingerprint privateKey pub tp
-            pure (Just pub)
+    -- Execute handshake protocol to establish identity
+    handshakeResult <- if isClient
+      then clientHandshake readBuffer privateKey publicKeyFileOrDir baseTp
+      else serverHandshake readBuffer privateKey publicKeyFileOrDir baseTp
 
-    -- 强制校验身份
-    case mPubKey of
+    case handshakeResult of
       Nothing -> do
-        closeTP tp
+        closeTP baseTp
         throwIO $ userError "RSA Transport Error: Handshake failed. Identity unverified."
-      Just pub ->
-        return RSA { peerPublicKey = pub, .. }
+      Just peerPub ->
+        return RSA
+          { peerPublicKey = peerPub
+          , tp = baseTp
+          , ..
+          }
 
-  recvData (RSA {..}) _ = recvDataOaep readBuffer privateKey tp
-  sendData (RSA {..}) = sendDataOaep peerPublicKey tp
-  closeTP (RSA {..}) = closeTP tp
-  getTPName (RSA {..}) = getTPName tp
+  recvData RSA {..} _ = recvDataOaep readBuffer privateKey tp
+  sendData RSA {..}   = sendDataOaep peerPublicKey tp
+  closeTP RSA {..}    = closeTP tp
+  getTPName RSA {..}  = getTPName tp
 
 ---
---- 内部辅助函数
+--- Handshake Logic
 ---
 
+-- | Client-side handshake: Loads trusted keys, sends own fingerprint, expects server acceptance.
+clientHandshake :: (Transport tp)
+                => TVar ByteString
+                -> PrivateKey
+                -> FilePath
+                -> tp
+                -> IO (Maybe PublicKey)
+clientHandshake buf myPrivKey peerKeyPath tp = do
+  keys <- loadPublicKeys peerKeyPath
+  case listToMaybe keys of
+    Nothing -> do
+      throwIO $ userError "RSA Config: No public keys found for client (Server key needed)."
+    Just serverPub -> do
+      -- 1. Send our public key fingerprint (encrypted with server's pub key)
+      sendPublicKeyFingerprint myPrivKey serverPub tp
+      -- 2. Perform handshake to verify server response/identity
+      handshake buf myPrivKey peerKeyPath tp
+
+-- | Server-side handshake: Waits for fingerprint, matches against allowed clients, responds.
+serverHandshake :: (Transport tp)
+                => TVar ByteString
+                -> PrivateKey
+                -> FilePath
+                -> tp
+                -> IO (Maybe PublicKey)
+serverHandshake buf myPrivKey authorizedKeysPath tp = do
+  -- 1. Receive and verify client fingerprint
+  mClientPub <- handshake buf myPrivKey authorizedKeysPath tp
+  case mClientPub of
+    Nothing -> return Nothing
+    Just clientPub -> do
+      -- 2. If verified, send back our fingerprint to confirm
+      sendPublicKeyFingerprint myPrivKey clientPub tp
+      return (Just clientPub)
+
+-- | Core handshake: Loads keys and waits for a fingerprint match.
+handshake :: Transport tp => TVar ByteString -> PrivateKey -> FilePath -> tp -> IO (Maybe PublicKey)
+handshake buf privKey fileOrDir tp = do
+  knownPubKeys <- loadPublicKeys fileOrDir
+  incomingFp   <- recvDataOaep buf privKey tp
+  return $ findPublicKeyByFingerprint incomingFp knownPubKeys
+
+-- | Encrypts and sends the fingerprint of the local public key.
+sendPublicKeyFingerprint :: Transport tp => PrivateKey -> PublicKey -> tp -> IO ()
+sendPublicKeyFingerprint myPrivKey peerPubKey tp =
+  sendDataOaep peerPubKey tp fingerprint
+  where
+    fingerprint = publicKeyFingerprint $ RSA.private_pub myPrivKey
+
+---
+--- Data Transmission Helpers
+---
+
+-- | Receive encrypted data, decrypt it using OAEP.
 recvDataOaep :: Transport tp => TVar ByteString -> PrivateKey -> tp -> IO ByteString
 recvDataOaep buf privKey tp = do
-  orig <- recvEnough buf tp size
-  -- decryptSafer 在 OAEP 模式下返回 IO (Either RSA.Error ByteString)
-  res <- decryptSafer oaepParams privKey orig
-  case res of
-    Left err -> throwIO $ userError $ "RSA Decryption Failed: " ++ show err
-    Right pt -> return pt
+  encryptedBlob <- recvEnough buf tp size
+  -- decryptSafer returns IO (Either RSA.Error ByteString) in OAEP mode
+  result <- decryptSafer oaepParams privKey encryptedBlob
+  case result of
+    Left err        -> throwIO $ userError $ "RSA Decryption Failed: " ++ show err
+    Right plainText -> return plainText
+  where
+    size = RSA.private_size privKey
 
-  where size = RSA.private_size privKey
-
+-- | Encrypt data using OAEP and send it. Handles chunking if data exceeds block size.
 sendDataOaep :: Transport tp => PublicKey -> tp -> ByteString -> IO ()
 sendDataOaep peerPubKey tp bs
   | BS.null bs = pure ()
   | otherwise = do
       let (chunk, remainder) = BS.splitAt maxSize bs
-
-      -- encrypt 在 OAEP 模式下返回 IO (Either RSA.Error ByteString)
-      res <- encrypt oaepParams peerPubKey chunk
-      case res of
-        Left err -> throwIO $ userError $ "RSA Encryption Failed: " ++ show err
-        Right ct -> do
-          sendData tp ct
+      -- encrypt returns IO (Either RSA.Error ByteString)
+      result <- encrypt oaepParams peerPubKey chunk
+      case result of
+        Left err         -> throwIO $ userError $ "RSA Encryption Failed: " ++ show err
+        Right cipherText -> do
+          sendData tp cipherText
           unless (BS.null remainder) $ sendDataOaep peerPubKey tp remainder
+  where
+    maxSize = RSA.public_size peerPubKey - oaepSize
 
-  where maxSize = RSA.public_size peerPubKey - oaepSize
+---
+--- Constructor
+---
 
-handshake :: Transport tp => TVar ByteString -> PrivateKey -> FilePath -> tp -> IO (Maybe PublicKey)
-handshake buf privKey fileOrDir tp = do
-  pubKeys <- loadPublicKeys fileOrDir
-  fp <- recvDataOaep buf privKey tp
-  return $ findPublicKeyByFingerprint fp pubKeys
-
-sendPublicKeyFingerprint :: Transport tp => PrivateKey -> PublicKey -> tp -> IO ()
-sendPublicKeyFingerprint privKey peerPubKey tp =
-  sendDataOaep peerPubKey tp fp
-  where fp = publicKeyFingerprint $ RSA.private_pub privKey
-
-rsa :: FilePath -> FilePath -> Bool -> IO (Either String (TransportConfig tp -> TransportConfig (RSA tp)))
+rsa :: FilePath -- ^ Private Key Path
+    -> FilePath -- ^ Public Key Path (or Directory for Server)
+    -> Bool     -- ^ Is Client?
+    -> IO (Either String (TransportConfig tp -> TransportConfig (RSA tp)))
 rsa privPath pubPath isClient = do
   ePrivKey <- readPrivateKeyPEM privPath
   return $ case ePrivKey of
     Left err      -> Left err
     Right privKey -> Right $ RSAConfig privKey pubPath isClient
 
+---
+--- PEM & Key Management
+---
 
+-- | Helper to calculate byte size from bit size integer.
+numBytes :: Integer -> Int
 numBytes n = (integerLog2 n + 7) `div` 8
+
+-- | Simple integer log2 implementation.
+integerLog2 :: Integer -> Int
 integerLog2 0 = 0
 integerLog2 n = 1 + integerLog2 (n `div` 2)
 
--- PEM 转换与密钥管理部分
-pemToPrivateKey :: BS.ByteString -> Either String PrivateKey
+pemToPrivateKey :: ByteString -> Either String PrivateKey
 pemToPrivateKey pemBS = do
   pems <- case pemParseBS pemBS of
     Left err    -> Left err
     Right []    -> Left "No PEM data found"
     Right (p:_) -> Right p
+
   asn1 <- case decodeASN1' DER (pemContent pems) of
     Left err -> Left (show err)
     Right a  -> Right a
+
   case asn1 of
     (Start Sequence : IntVal _ : IntVal n : IntVal e : IntVal d :
      IntVal p : IntVal q : IntVal dP : IntVal dQ : IntVal qinv : End Sequence : _) ->
@@ -161,9 +214,10 @@ pemToPrivateKey pemBS = do
     _ -> Left "Invalid ASN.1 structure for RSA private key"
 
 readPrivateKeyPEM :: FilePath -> IO (Either String PrivateKey)
-readPrivateKeyPEM path = pemToPrivateKey <$> BS.readFile path
+readPrivateKeyPEM path =
+  (pemToPrivateKey <=< first displayException) <$> tryAny (BS.readFile path)
 
-pemToPublicKeyList :: BS.ByteString -> Either String [PublicKey]
+pemToPublicKeyList :: ByteString -> Either String [PublicKey]
 pemToPublicKeyList pemBS = do
   pems <- case pemParseBS pemBS of
     Left err -> Left err
@@ -181,14 +235,15 @@ pemToPublicKeyList pemBS = do
         _ -> Left "Invalid ASN.1 structure for RSA public key"
 
 readPublicKeyListPEM :: FilePath -> IO (Either String [PublicKey])
-readPublicKeyListPEM path = pemToPublicKeyList <$> BS.readFile path
+readPublicKeyListPEM path =
+  (pemToPublicKeyList <=< first displayException) <$> tryAny (BS.readFile path)
 
 readPublicKeysFromDirectory :: FilePath -> IO (Either String [(FilePath, [PublicKey])])
 readPublicKeysFromDirectory dir = do
   allFiles <- listDirectory dir
   let pemFiles = filter (".pem" `isSuffixOf`) allFiles
-  let fullPaths = map (dir </>) pemFiles
-  results <- mapM readFileWithKeys fullPaths
+      fullPaths = map (dir </>) pemFiles
+  results <- filter isRight <$> mapM readFileWithKeys fullPaths
   return $ sequence results
   where
     readFileWithKeys path = do
@@ -207,34 +262,37 @@ readAllPublicKeysFromDirectory dir = do
 loadPublicKeys :: FilePath -> IO [PublicKey]
 loadPublicKeys publicKeyFileOrDir = do
   isFile <- doesFileExist publicKeyFileOrDir
-  if isFile then fromRight [] <$> readPublicKeyListPEM publicKeyFileOrDir
-            else fromRight [] <$> readAllPublicKeysFromDirectory publicKeyFileOrDir
+  if isFile
+    then fromRight [] <$> readPublicKeyListPEM publicKeyFileOrDir
+    else fromRight [] <$> readAllPublicKeysFromDirectory publicKeyFileOrDir
 
-publicKeyFingerprint :: PublicKey -> BS.ByteString
+publicKeyFingerprint :: PublicKey -> ByteString
 publicKeyFingerprint key = convert (hash asn1Bytes :: Digest SHA256)
   where
     asn1Bytes = publicKeyToASN1 key
 
-findPublicKeyByFingerprint :: BS.ByteString -> [PublicKey] -> Maybe PublicKey
+findPublicKeyByFingerprint :: ByteString -> [PublicKey] -> Maybe PublicKey
 findPublicKeyByFingerprint fp = find (\k -> publicKeyFingerprint k == fp)
 
-privateKeyToPEM :: PrivateKey -> BS.ByteString
+-- | Serializes a Private Key to PEM format.
+privateKeyToPEM :: PrivateKey -> ByteString
 privateKeyToPEM key = pemWriteBS pem
-  where pem = PEM "RSA PRIVATE KEY" [] (encodeASN1' DER asn1)
-        asn1 =
-          [ Start Sequence, IntVal 0
-          , IntVal (RSA.private_n key)
-          , IntVal (RSA.public_e $ RSA.private_pub key)
-          , IntVal (RSA.private_d key)
-          , IntVal (RSA.private_p key)
-          , IntVal (RSA.private_q key)
-          , IntVal (RSA.private_dP key)
-          , IntVal (RSA.private_dQ key)
-          , IntVal (RSA.private_qinv key)
-          , End Sequence
-          ]
+  where
+    pem = PEM "RSA PRIVATE KEY" [] (encodeASN1' DER asn1)
+    asn1 =
+      [ Start Sequence, IntVal 0
+      , IntVal (RSA.private_n key)
+      , IntVal (RSA.public_e $ RSA.private_pub key)
+      , IntVal (RSA.private_d key)
+      , IntVal (RSA.private_p key)
+      , IntVal (RSA.private_q key)
+      , IntVal (RSA.private_dP key)
+      , IntVal (RSA.private_dQ key)
+      , IntVal (RSA.private_qinv key)
+      , End Sequence
+      ]
 
-publicKeyToASN1 :: PublicKey -> BS.ByteString
+publicKeyToASN1 :: PublicKey -> ByteString
 publicKeyToASN1 key = encodeASN1' DER
   [ Start Sequence
   , IntVal (RSA.public_n key)
@@ -242,7 +300,7 @@ publicKeyToASN1 key = encodeASN1' DER
   , End Sequence
   ]
 
-publicKeyToPEM :: PublicKey -> BS.ByteString
+publicKeyToPEM :: PublicKey -> ByteString
 publicKeyToPEM key = pemWriteBS $ PEM "RSA PUBLIC KEY" [] (publicKeyToASN1 key)
 
 writePrivateKeyPEM :: FilePath -> PrivateKey -> IO ()
@@ -251,11 +309,13 @@ writePrivateKeyPEM path key = BS.writeFile path (privateKeyToPEM key)
 writePublicKeyPEM :: FilePath -> PublicKey -> IO ()
 writePublicKeyPEM path key = BS.writeFile path (publicKeyToPEM key)
 
+-- | Generates an RSA keypair of the given size (bits) and saves them to files.
 generateKeyPair :: FilePath -> Int -> IO ()
 generateKeyPair prefix size = do
   (pubKey, privKey) <- generate size 65537
   writePrivateKeyPEM privFile privKey
   writePublicKeyPEM pubFile pubKey
   putStrLn $ "Keys written to " ++ privFile ++ " and " ++ pubFile
-  where privFile = prefix ++ "_private_key.pem"
-        pubFile  = prefix ++ "_public_key.pem"
+  where
+    privFile = prefix ++ "_private_key.pem"
+    pubFile  = prefix ++ "_public_key.pem"
