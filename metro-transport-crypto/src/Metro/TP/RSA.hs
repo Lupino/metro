@@ -1,15 +1,22 @@
+{-# LANGUAGE DeriveGeneric     #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards   #-}
 {-# LANGUAGE TypeFamilies      #-}
 
 module Metro.TP.RSA
-  ( RSA
+  ( RSATP
+  , RSAMode (..)
   , rsa
+  , configClient
+  , configServer
   , generateKeyPair
   ) where
 
 import           Control.Exception        (displayException)
 import           Control.Monad            (unless, (<=<))
+import           Crypto.Cipher.AES        (AES256)
+import           Crypto.Cipher.Types      (Cipher (..), IV, ctrCombine, makeIV)
+import           Crypto.Error             (CryptoFailable (..))
 import           Crypto.Hash              (Digest, SHA256 (..), hash)
 import           Crypto.PubKey.RSA        (PrivateKey, PublicKey, generate)
 import           Crypto.PubKey.RSA.OAEP   (OAEPParams, decryptSafer,
@@ -19,19 +26,25 @@ import           Data.ASN1.BinaryEncoding (DER (..))
 import           Data.ASN1.Encoding       (decodeASN1', encodeASN1')
 import           Data.ASN1.Types
 import           Data.Bifunctor           (first)
+import           Data.Binary              (Binary, decode, encode)
 import           Data.ByteArray           (convert)
 import           Data.ByteString          (ByteString)
 import qualified Data.ByteString          as BS
+import qualified Data.ByteString.Lazy     as LBS
 import           Data.Either              (fromRight, isRight)
 import           Data.List                (find, isSuffixOf)
 import           Data.Maybe               (listToMaybe)
 import           Data.PEM                 (PEM (..), pemContent, pemParseBS,
                                            pemWriteBS)
+import           GHC.Generics             (Generic)
 import           Metro.Class              (Transport (..))
 import           Metro.Utils              (recvEnough)
 import           System.Directory         (doesFileExist, listDirectory)
+import           System.Entropy           (getEntropy)
 import           System.FilePath          ((</>))
-import           UnliftIO                 (TVar, newTVarIO, throwIO, tryAny)
+import           UnliftIO                 (TVar, atomically, newTVarIO,
+                                           readTVarIO, throwIO, tryAny,
+                                           writeTVar)
 
 -- | OAEP Configuration: Using SHA256.
 -- The overhead for SHA256 OAEP padding is 66 bytes (2 * 32 + 2).
@@ -41,21 +54,37 @@ oaepParams = defaultOAEPParams SHA256
 oaepSize :: Int
 oaepSize = 66
 
-data RSA tp = RSA
+-- | AES Configuration
+aesKeySize :: Int
+aesKeySize = 32
+
+aesIvSize :: Int
+aesIvSize = 16
+
+-- | Transmission Mode
+data RSAMode = Plain | RSA | AES
+  deriving (Show, Read, Eq, Generic)
+
+instance Binary RSAMode
+
+data RSATP tp = RSATP
   { readBuffer    :: TVar ByteString
   , privateKey    :: PrivateKey
   , peerPublicKey :: PublicKey
+  , rsaMode       :: RSAMode
+  , sessionKey    :: ByteString -- ^ AES Session Key (Empty if not AES mode)
   , tp            :: tp
   }
 
-instance (Transport tp) => Transport (RSA tp) where
-  data TransportConfig (RSA tp) = RSAConfig PrivateKey FilePath Bool (TransportConfig tp)
+instance (Transport tp) => Transport (RSATP tp) where
+  -- Updated: Added RSAMode to the Config
+  data TransportConfig (RSATP tp) = RSAConfig RSAMode PrivateKey FilePath Bool (TransportConfig tp)
 
-  newTP (RSAConfig privateKey publicKeyFileOrDir isClient config) = do
+  newTP (RSAConfig configMode privateKey publicKeyFileOrDir isClient config) = do
     readBuffer <- newTVarIO BS.empty
     baseTp     <- newTP config
 
-    -- Execute handshake protocol to establish identity
+    -- 1. RSA Handshake: Always establish Identity regardless of subsequent mode
     handshakeResult <- if isClient
       then clientHandshake readBuffer privateKey publicKeyFileOrDir baseTp
       else serverHandshake readBuffer privateKey publicKeyFileOrDir baseTp
@@ -64,17 +93,55 @@ instance (Transport tp) => Transport (RSA tp) where
       Nothing -> do
         closeTP baseTp
         throwIO $ userError "RSA Transport Error: Handshake failed. Identity unverified."
-      Just peerPub ->
-        return RSA
+      Just peerPub -> do
+
+        -- 2. Mode Negotiation: Client determines mode, Server accepts it
+        actualMode <- if isClient
+          then do
+            -- Client: Send the configured mode to Server (Encrypted)
+            let modeBytes = LBS.toStrict $ encode configMode
+            sendDataOaep peerPub baseTp modeBytes
+            return configMode
+          else do
+            -- Server: Receive the mode from Client
+            -- Note: We ignore the 'configMode' passed in RSAConfig for the server
+            modeBytes <- recvDataOaep readBuffer privateKey baseTp
+            let clientMode = decode (LBS.fromStrict modeBytes) :: RSAMode
+            return clientMode
+
+        -- 3. Key Exchange: Negotiate AES Session Key ONLY if AES mode is requested
+        sKey <- case actualMode of
+          AES -> if isClient
+            then do
+              -- Client generates key and sends it encrypted with Server's PubKey
+              k <- getEntropy aesKeySize
+              sendDataOaep peerPub baseTp k
+              return k
+            else do
+              -- Server receives the key.
+              recvDataOaep readBuffer privateKey baseTp
+          _ -> return BS.empty -- No session key needed for Plain or RSA-OAEP modes
+
+        return RSATP
           { peerPublicKey = peerPub
           , tp = baseTp
+          , rsaMode = actualMode -- Use the negotiated mode
+          , sessionKey = sKey
           , ..
           }
 
-  recvData RSA {..} _ = recvDataOaep readBuffer privateKey tp
-  sendData RSA {..}   = sendDataOaep peerPublicKey tp
-  closeTP RSA {..}    = closeTP tp
-  getTPName RSA {..}  = getTPName tp
+  recvData RSATP {..} n = case rsaMode of
+    Plain -> recvData tp n
+    RSA   -> recvDataOaep readBuffer privateKey tp -- Legacy/Fallback mode
+    AES   -> recvDataAes readBuffer sessionKey tp n
+
+  sendData RSATP {..} bs = case rsaMode of
+    Plain -> sendData tp bs
+    RSA   -> sendDataOaep peerPublicKey tp bs
+    AES   -> sendDataAes sessionKey tp bs
+
+  closeTP RSATP {..}    = closeTP tp
+  getTPName RSATP {..}  = getTPName tp
 
 ---
 --- Handshake Logic
@@ -130,14 +197,62 @@ sendPublicKeyFingerprint myPrivKey peerPubKey tp =
     fingerprint = publicKeyFingerprint $ RSA.private_pub myPrivKey
 
 ---
---- Data Transmission Helpers
+--- AES Data Transmission (Hybrid)
+---
+
+-- | Initialize AES-256 Cipher
+initAES :: ByteString -> IV AES256 -> AES256
+initAES key _ = case cipherInit key of
+  CryptoFailed e -> error $ "AES Init Failed: " ++ show e
+  CryptoPassed c -> c
+
+-- | Encrypts data using AES-256-CTR and sends it with a length header.
+-- Format: [Length (8 bytes)][IV (16 bytes)][Ciphertext]
+sendDataAes :: (Transport tp) => ByteString -> tp -> ByteString -> IO ()
+sendDataAes key tp bs
+  | BS.null bs = return ()
+  | otherwise = do
+      ivBytes <- getEntropy aesIvSize
+      let iv = case makeIV ivBytes of
+                 Just i  -> i
+                 Nothing -> error "Failed to generate IV"
+
+      let ctx = initAES key iv
+          cipherText = ctrCombine ctx iv bs
+
+          -- Construct packet: IV + CipherText
+          payload = ivBytes `BS.append` cipherText
+          -- Length header (Int64 -> 8 bytes)
+          lenBytes = LBS.toStrict $ encode (fromIntegral (BS.length payload) :: Int)
+
+      sendData tp (lenBytes `BS.append` payload)
+
+-- | Receives AES encrypted data. Handles buffering and packet reassembly.
+recvDataAes :: (Transport tp) => TVar ByteString -> ByteString -> tp -> Int -> IO ByteString
+recvDataAes buf key tp n = do
+      -- 1. Read Packet Length (8 bytes for Int64)
+  lenBytes <- recvEnough buf tp 8
+  let pktLen = decode (LBS.fromStrict lenBytes) :: Int
+
+  -- 2. Read Packet Payload (IV + Ciphertext)
+  payload <- recvEnough buf tp pktLen
+  let (ivBytes, cipherText) = BS.splitAt aesIvSize payload
+
+  -- 3. Decrypt
+  let iv = case makeIV ivBytes of
+             Just i  -> i
+             Nothing -> error "Invalid IV received"
+
+  return $ ctrCombine (initAES key iv) iv cipherText
+
+---
+--- RSA Data Transmission Helpers (OAEP)
 ---
 
 -- | Receive encrypted data, decrypt it using OAEP.
 recvDataOaep :: Transport tp => TVar ByteString -> PrivateKey -> tp -> IO ByteString
 recvDataOaep buf privKey tp = do
   encryptedBlob <- recvEnough buf tp size
-  -- decryptSafer returns IO (Either RSA.Error ByteString) in OAEP mode
   result <- decryptSafer oaepParams privKey encryptedBlob
   case result of
     Left err        -> throwIO $ userError $ "RSA Decryption Failed: " ++ show err
@@ -151,7 +266,6 @@ sendDataOaep peerPubKey tp bs
   | BS.null bs = pure ()
   | otherwise = do
       let (chunk, remainder) = BS.splitAt maxSize bs
-      -- encrypt returns IO (Either RSA.Error ByteString)
       result <- encrypt oaepParams peerPubKey chunk
       case result of
         Left err         -> throwIO $ userError $ "RSA Encryption Failed: " ++ show err
@@ -162,18 +276,35 @@ sendDataOaep peerPubKey tp bs
     maxSize = RSA.public_size peerPubKey - oaepSize
 
 ---
---- Constructor
+--- Constructor & Config Helpers
 ---
 
-rsa :: FilePath -- ^ Private Key Path
+-- | Updated constructor: Takes RSAMode as argument
+rsa :: RSAMode  -- ^ Transmission Mode (Plain, RSA, or AES)
+    -> FilePath -- ^ Private Key Path
     -> FilePath -- ^ Public Key Path (or Directory for Server)
     -> Bool     -- ^ Is Client?
-    -> IO (Either String (TransportConfig tp -> TransportConfig (RSA tp)))
-rsa privPath pubPath isClient = do
+    -> IO (TransportConfig tp -> TransportConfig (RSATP tp))
+rsa mode privPath pubPath isClient = do
   ePrivKey <- readPrivateKeyPEM privPath
-  return $ case ePrivKey of
-    Left err      -> Left err
-    Right privKey -> Right $ RSAConfig privKey pubPath isClient
+  case ePrivKey of
+    Left err       -> throwIO $ userError $ "Read RSA private key failed: " ++ show err
+    Right privKey -> return $ RSAConfig mode privKey pubPath isClient
+
+-- | Client Configuration: Explicitly sets the RSAMode
+configClient :: RSAMode  -- ^ Mode to negotiate with server (Plain, RSA, AES)
+             -> FilePath -- ^ Client Private Key
+             -> FilePath -- ^ Server Public Key
+             -> IO (TransportConfig tp -> TransportConfig (RSATP tp))
+configClient mode privPath pubPath = rsa mode privPath pubPath True
+
+-- | Server Configuration: Mode is determined by the Client
+configServer :: FilePath -- ^ Server Private Key
+             -> FilePath -- ^ Directory containing authorized Client Public Keys
+             -> IO (TransportConfig tp -> TransportConfig (RSATP tp))
+configServer privPath pubDir = rsa Plain privPath pubDir False
+-- Note: 'Plain' here is a placeholder. The server will ignore this
+-- and use the mode sent by the client during the handshake.
 
 ---
 --- PEM & Key Management
