@@ -131,7 +131,7 @@ instance (Transport tp) => Transport (RSATP tp) where
           }
 
   recvData RSATP {..} n = case rsaMode of
-    Plain -> recvData tp n
+    Plain -> recvDataPlain readBuffer tp n
     RSA   -> recvDataOaep readBuffer privateKey tp -- Legacy/Fallback mode
     AES   -> recvDataAes readBuffer sessionKey tp n
 
@@ -195,6 +195,25 @@ sendPublicKeyFingerprint myPrivKey peerPubKey tp =
   sendDataOaep peerPubKey tp fingerprint
   where
     fingerprint = publicKeyFingerprint $ RSA.private_pub myPrivKey
+
+---
+--- Plain Data Helpers (Fixing Buffer Issue)
+---
+
+-- | Read data: Prioritize reading from the buffer.
+-- If the buffer is empty, read from the underlying Transport.
+-- This resolves the issue where excessive reading during the handshake phase
+-- causes data to remain in the Buffer and be ignored by a raw recvData call.
+recvDataPlain :: (Transport tp) => TVar ByteString -> tp -> Int -> IO ByteString
+recvDataPlain buf tp n = do
+  currentBuf <- readTVarIO buf
+  if BS.null currentBuf
+    then recvData tp n -- Buffer is empty, read directly from network
+    else do
+      -- Buffer has data, consume from buffer first
+      let (ret, rest) = BS.splitAt n currentBuf
+      atomically $ writeTVar buf rest
+      return ret
 
 ---
 --- AES Data Transmission (Hybrid)

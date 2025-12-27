@@ -39,6 +39,8 @@ library:
   - filepath
   - memory
 
+  - entropy
+
 tests:
   metro-transport-crypto-test:
     main:                Spec.hs

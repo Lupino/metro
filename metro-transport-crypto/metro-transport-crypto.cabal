@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: d6467cb2ab0b60666fa3362b9058bf775035355b3d81bb948db7f0e128746af9
+-- hash: 18b7f7f2519bafec7eaf50ecc9784d2827d79e76fe11a2a772db24f4142add4d
 
 name:           metro-transport-crypto
 version:        0.1.0.0
@@ -43,6 +43,7 @@ library
     , bytestring
     , crypton
     , directory
+    , entropy
     , filepath
     , memory
     , metro
