@@ -26,6 +26,7 @@ module Metro.Node
   , startNodeT
   , startNodeT_
   , withSessionT
+  , withSessionT_
   , nodeState
   , stopNodeT
   , env
@@ -33,6 +34,7 @@ module Metro.Node
   , requestAndRetry
 
   , newSessionEnv
+  , removeSession
   , nextSessionId
   , runSessionT_
   , runCheckSessionState
@@ -203,8 +205,13 @@ runSessionT_ aEnv = fromConn . runSessionT aEnv
 withSessionT
   :: (MonadUnliftIO m, Eq k, Ord k)
   => Maybe Int64 -> SessionT u nid k rpkt tp m a -> NodeT u nid k rpkt tp m a
-withSessionT sTout sessionT =
-  bracket nextSessionId removeSession $ \sid -> do
+withSessionT sTout sessionT = withSessionT_ nextSessionId sTout sessionT
+
+withSessionT_
+  :: (MonadUnliftIO m, Eq k, Ord k)
+  => NodeT u nid k rpkt tp m k -> Maybe Int64 -> SessionT u nid k rpkt tp m a -> NodeT u nid k rpkt tp m a
+withSessionT_ genSid sTout sessionT =
+  bracket genSid removeSession $ \sid -> do
     aEnv <- newSessionEnv sTout sid
     runSessionT_ aEnv sessionT
 
