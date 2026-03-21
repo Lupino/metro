@@ -82,31 +82,44 @@ getFreeState states = do
 startPoolerIO :: MonadUnliftIO m => TVar [rpkt] -> FreeStates rpkt -> PoolerState rpkt -> (rpkt -> m ()) -> m (Async ())
 startPoolerIO packets states state work =
   async $ foreverExit $ \exit -> do
-    rpkt <- atomically
-      $ readTVar state
-      >>= maybe retrySTM pure . statePacket
+    mrpkt <- atomically $ do
+      st <- readTVar state
+      case statePacket st of
+        Just rpkt -> pure (Just rpkt)
+        Nothing ->
+          if stateAlive st
+            then retrySTM
+            else pure Nothing
 
-    lift $ work rpkt
+    case mrpkt of
+      Nothing -> exit ()
+      Just rpkt -> do
+        lift $ work rpkt
 
-    atomically $ do
-      pkts <- readTVar packets
-      st <- stateAlive <$> readTVar state
-      case pkts of
-        [] -> do
-          modifyTVar' state $ \s -> s
-            { statePacket = Nothing
-            , stateIsBusy = False
-            }
+        atomically $ do
+          pkts <- readTVar packets
+          st <- stateAlive <$> readTVar state
+          if st
+            then case pkts of
+              [] -> do
+                modifyTVar' state $ \s -> s
+                  { statePacket = Nothing
+                  , stateIsBusy = False
+                  }
+                modifyTVar' states (state:)
+              (x:xs) -> do
+                modifyTVar' state $ \s -> s
+                  { statePacket = Just x
+                  }
+                writeTVar packets xs
+            else
+              modifyTVar' state $ \s -> s
+                { statePacket = Nothing
+                , stateIsBusy = False
+                }
 
-          when st $ modifyTVar' states (state:)
-        (x:xs) -> do
-          modifyTVar' state $ \s -> s
-            { statePacket = Just x
-            }
-          writeTVar packets xs
-
-    st <- stateAlive <$> readTVarIO state
-    unless st $ exit ()
+        st <- stateAlive <$> readTVarIO state
+        unless st $ exit ()
 
 
 spawn :: MonadIO m => SessionPool rpkt -> rpkt -> m ()
