@@ -14,7 +14,7 @@ import           Control.Applicative ((<|>))
 import           Control.Exception (bracketOnError, throwIO)
 import           Control.Monad     (when)
 import           Data.Char         (isDigit)
-import           Data.List         (isPrefixOf)
+import           Data.List         (isInfixOf, isPrefixOf)
 import           Data.Maybe        (listToMaybe)
 import           Network.Socket    hiding (bind, connect, listen)
 import qualified Network.Socket    as S (bind, connect, listen)
@@ -202,8 +202,13 @@ splitHostPort hostPort =
               port = reverse rPort
               -- IPv6 may validly start with "::" (e.g. "::1"), so only
               -- reject hosts ending with ':' which indicates missing tail.
+              --
+              -- Also, only infer unbracketed host:port from compressed
+              -- addresses. This avoids misparsing plain IPv6 host-only
+              -- values such as "2001:db8:1:2:3:4:5:6" as host+port.
               hostLooksComplete = not (null host) && last host /= ':'
-          in if all isDigit port && hostLooksComplete
+              hostHasCompression = "::" `isInfixOf` host
+          in if not (null port) && all isDigit port && hostLooksComplete && hostHasCompression
                then (Just host, Just port)
                else (Just s, Nothing)
 
