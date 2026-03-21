@@ -205,7 +205,7 @@ runSessionT_ aEnv = fromConn . runSessionT aEnv
 withSessionT
   :: (MonadUnliftIO m, Eq k, Ord k)
   => Maybe Int64 -> SessionT u nid k rpkt tp m a -> NodeT u nid k rpkt tp m a
-withSessionT sTout sessionT = withSessionT_ nextSessionId sTout sessionT
+withSessionT = withSessionT_ nextSessionId
 
 withSessionT_
   :: (MonadUnliftIO m, Eq k, Ord k)
