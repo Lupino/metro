@@ -26,7 +26,7 @@ import           Data.ASN1.BinaryEncoding (DER (..))
 import           Data.ASN1.Encoding       (decodeASN1', encodeASN1')
 import           Data.ASN1.Types
 import           Data.Bifunctor           (first)
-import           Data.Binary              (Binary, decode, encode)
+import           Data.Binary              (Binary, decodeOrFail, encode)
 import           Data.ByteArray           (convert)
 import           Data.ByteString          (ByteString)
 import qualified Data.ByteString          as BS
@@ -106,8 +106,9 @@ instance (Transport tp) => Transport (RSATP tp) where
             -- Server: Receive the mode from Client
             -- Note: We ignore the 'configMode' passed in RSAConfig for the server
             modeBytes <- recvDataOaep readBuffer privateKey baseTp
-            let clientMode = decode (LBS.fromStrict modeBytes) :: RSAMode
-            return clientMode
+            case decodeOrFail (LBS.fromStrict modeBytes) of
+              Left (_, _, err)    -> throwIO $ userError $ "Invalid RSA mode payload: " ++ err
+              Right (_, _, cMode) -> return (cMode :: RSAMode)
 
         -- 3. Key Exchange: Negotiate AES Session Key ONLY if AES mode is requested
         sKey <- case actualMode of
