@@ -312,9 +312,13 @@ startServer_
   -> SessionT u nid k rpkt tp m ()
   -> m ()
 startServer_ sEnv preprocess sess = do
-  runCheckNodeState (onCheckNodeState sEnv) (keepalive sEnv) (nodeEnvList sEnv)
-  runServerT sEnv $ serveForever preprocess sess
-  liftIO $ servClose $ serveServ sEnv
+  runCheckNodeState (serveState sEnv) (onCheckNodeState sEnv) (keepalive sEnv) (nodeEnvList sEnv)
+  finally
+    (runServerT sEnv $ serveForever preprocess sess)
+    (do
+      atomically $ writeTVar (serveState sEnv) False
+      liftIO $ servClose $ serveServ sEnv
+    )
 
 stopServerT :: (MonadIO m, Servable serv) => ServerT serv u nid k rpkt tp m ()
 stopServerT = do
@@ -324,12 +328,18 @@ stopServerT = do
 
 runCheckNodeState
   :: (MonadUnliftIO m, Eq nid, Ord nid, Transport tp, Eq k, Ord k)
-  => TVar (Maybe (nid -> u -> IO ()))
+  => TVar Bool
+  -> TVar (Maybe (nid -> u -> IO ()))
   -> TVar Int64 -> IOMap nid (NodeEnv1 u nid k rpkt tp) -> m ()
-runCheckNodeState tOnCheckNodeState alive envList = void . async . forever $ do
+runCheckNodeState serveStateTVar tOnCheckNodeState alive envList = void . async . foreverExit $ \exit -> do
   threadDelay 10000000 -- 10 seconds
+  serving <- readTVarIO serveStateTVar
+  unless serving $ exit ()
   mOnCheckNodeState <- readTVarIO tOnCheckNodeState
-  mapM_ (checkNodeState mOnCheckNodeState envList) =<< IOMap.elems envList
+  r <- lift $ tryAny $ mapM_ (checkNodeState mOnCheckNodeState envList) =<< IOMap.elems envList
+  case r of
+    Left e  -> liftIO $ errorM "Metro.Server" $ "Check node state error " ++ show e
+    Right _ -> pure ()
 
   where checkNodeState
           :: (MonadUnliftIO m, Eq nid, Ord nid, Transport tp, Eq k, Ord k)
