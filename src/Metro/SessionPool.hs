@@ -124,6 +124,8 @@ startPoolerIO packets states state work =
 
 spawn :: MonadIO m => SessionPool rpkt -> rpkt -> m ()
 spawn SessionPool {..} rpkt = atomically $ do
+  alive <- readTVar nodeStatus
+  when alive $ do
     mState <- getFreeState freeStates
     case mState of
       Just state -> modifyTVar' state $ \s -> s
@@ -147,8 +149,11 @@ spawn SessionPool {..} rpkt = atomically $ do
 
         else do
           pl <- length <$> readTVar packetList
-          if pl >= maxSize then retrySTM
-                           else do
+          if pl >= maxSize
+            then do
+              stillAlive <- readTVar nodeStatus
+              when stillAlive retrySTM
+            else do
             modifyTVar' packetList (++ [rpkt])
             when (size > maxSize) $ do
               poolers <- readTVar poolerList
