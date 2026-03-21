@@ -21,7 +21,7 @@ import           Control.Monad        (when)
 import           Crypto.Cipher.Types  (BlockCipher (..), Cipher (..), IV (..),
                                        KeySizeSpecifier (..), ivAdd, nullIV)
 import           Crypto.Error         (CryptoFailable (..))
-import           Data.Binary          (Binary (..), decode, encode)
+import           Data.Binary          (Binary (..), decodeOrFail, encode)
 import           Data.Binary.Get      (getByteString, getWord32be)
 import           Data.Binary.Put      (putByteString, putWord32be)
 import           Data.ByteString      (ByteString, empty)
@@ -61,12 +61,18 @@ instance Binary Block where
 makeBlock :: Int -> ByteString -> Block
 makeBlock bSize msg = Block size msg0
   where size = B.length msg
-        fixedSize = ceiling (fromIntegral size / fromIntegral bSize * 1.0) * bSize
+        fixedSize =
+          if bSize <= 0
+            then size
+            else ((size + bSize - 1) `div` bSize) * bSize
         msg0 = if size < fixedSize then msg `B.append` B.replicate (fixedSize - size) 0
                                    else msg
 
 getMsg :: Block -> ByteString
 getMsg Block {..} = B.take msgSize encData
+
+maxCryptoPacketSize :: Int
+maxCryptoPacketSize = 64 * 1024 * 1024
 
 prepareBlock
   :: BlockCipher cipher
@@ -91,7 +97,10 @@ data Crypto cipher tp = Crypto
 
 instance (Transport tp, BlockCipher cipher) => Transport (Crypto cipher tp) where
   data TransportConfig (Crypto cipher tp) =
-    CryptoConfig (CryptoMethod cipher) cipher (IV cipher) (TransportConfig tp)
+      CryptoConfig (CryptoMethod cipher) cipher (IV cipher) (TransportConfig tp)
+    | InvalidCryptoConfig String
+  newTP (InvalidCryptoConfig err) =
+    ioError $ userError err
   newTP (CryptoConfig cryptoMethod cipher iv config) = do
     readBuffer <- newTVarIO empty
     tp <- newTP config
@@ -101,13 +110,18 @@ instance (Transport tp, BlockCipher cipher) => Transport (Crypto cipher tp) wher
   recvData (Crypto buf method ivr _ cipher tp) _ = do
     hbs <- recvEnough buf tp 4
     iv <- readTVarIO ivr
-    case decode (fromStrict hbs) of
-      BlockLength len -> do
-        bs <- getMsg
-          . prepareBlock (decrypt method) cipher iv
-          . decode
-          . fromStrict
-          . (hbs <>) <$> recvEnough buf tp len
+    case decodeOrFail (fromStrict hbs) of
+      Left (_, _, err) -> throwIO $ userError $ "Invalid crypto block header: " ++ err
+      Right (_, _, BlockLength len) -> do
+        when (len < 4 || len > maxCryptoPacketSize) $
+          throwIO $ userError "Invalid crypto block length"
+        blockBytes <- (hbs <>) <$> recvEnough buf tp len
+        block <- case decodeOrFail (fromStrict blockBytes) of
+          Left (_, _, err) -> throwIO $ userError $ "Invalid crypto block payload: " ++ err
+          Right (_, _, b)  -> pure b
+        let bs = getMsg
+              . prepareBlock (decrypt method) cipher iv
+              $ block
 
         when (needIV method) $
           atomically $ writeTVar ivr (ivAdd iv (B.length bs))
@@ -115,15 +129,16 @@ instance (Transport tp, BlockCipher cipher) => Transport (Crypto cipher tp) wher
         return bs
   sendData (Crypto _ method _ ivw cipher tp) bs = do
     iv <- readTVarIO ivw
-
-    when (needIV method) $
-      atomically $ writeTVar ivw (ivAdd iv (B.length bs))
+    let iv' = ivAdd iv (B.length bs)
 
     sendData tp
       . toStrict
       . encode
       . prepareBlock (encrypt method) cipher iv
       $ makeBlock (blockSize cipher) bs
+
+    when (needIV method) $
+      atomically $ writeTVar ivw iv'
   closeTP (Crypto _ _ _ _ _ tp) = closeTP tp
   getTPName (Crypto _ _ _ _ _ tp) = getTPName tp
 
@@ -173,10 +188,10 @@ makeCrypto
   => cipher -> String -> String -> TransportConfig tp -> TransportConfig (Crypto cipher tp)
 makeCrypto cipher method key c =
   case getCryptoMethod cipher method of
-    Nothing -> error "crypto method not support"
+    Nothing -> InvalidCryptoConfig $ "crypto method not support: " ++ method
     Just m  ->
       case cipherInit key0 of
-        CryptoFailed e         -> error $ "Cipher init failed " ++ show e
+        CryptoFailed e         -> InvalidCryptoConfig $ "Cipher init failed " ++ show e
         CryptoPassed (newCipher :: cipher) ->
           crypto m newCipher c
 
