@@ -35,12 +35,13 @@ module Data.IOHashMap
 
 import           Control.Monad.IO.Class (MonadIO (..))
 import           Control.Monad.STM      (atomically)
+import           Data.Hashable
 import           Data.HashMap.Strict    (HashMap)
 import qualified Data.HashMap.Strict    as HM
-import           Data.Hashable
 import           Data.IOHashMap.STM     (IOHashMap)
 import qualified Data.IOHashMap.STM     as STM
-import           Prelude                hiding (foldl, foldr, lookup, null)
+import           Prelude                hiding (foldl, foldl', foldr, lookup,
+                                         null)
 
 -- start helpers
 newIOHashMap :: MonadIO m => HashMap k v -> m (IOHashMap k v)

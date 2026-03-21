@@ -35,10 +35,11 @@ module Data.IOHashMap.STM
 
 import           Control.Concurrent.STM (STM, TVar, modifyTVar', newTVar,
                                          readTVar)
+import           Data.Hashable
 import           Data.HashMap.Strict    (HashMap)
 import qualified Data.HashMap.Strict    as HM
-import           Data.Hashable
-import           Prelude                hiding (foldl, foldr, lookup, null)
+import           Prelude                hiding (foldl, foldl', foldr, lookup,
+                                         null)
 
 newtype IOHashMap k v = IOHashMap (TVar (HashMap k v))
 
