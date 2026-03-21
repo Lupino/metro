@@ -17,7 +17,7 @@
 #
 # resolver: ./custom-snapshot.yaml
 # resolver: https://example.com/snapshots/2018-01-01.yaml
-resolver: lts-17.11
+resolver: lts-24.34
 
 # User packages to be built.
 # Various formats can be used as shown in the example below.
@@ -47,7 +47,7 @@ packages:
 # using the same syntax as the packages field.
 # (e.g., acme-missiles-0.3)
 extra-deps:
-- serialport-0.5.2@sha256:7bf562bfb75cc4199b53c95ba4235fd4627a9b818191cd6d3f12404b90e6a10a,1703
+- serialport-0.6.0@sha256:b540e3a8d05de8f5d1e28139655fc53d45cdfe3a4c004d47ad19b42ab0e93b43,2142
 
 # Override default flag values for local packages and extra-deps
 # flags: {}
