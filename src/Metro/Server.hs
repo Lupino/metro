@@ -212,14 +212,22 @@ doServeOnce
 doServeOnce _ _ Nothing = return ()
 doServeOnce preprocess sess (Just (servID, stp)) = do
   ServerEnv {..} <- ask
-  connEnv <- initConnEnv $ mapTP stp
-  mnid <- liftIO $ prepare serveServ servID connEnv
-  forM_ mnid $ \(nid, uEnv) -> do
-    (_, io) <- handleConn "Client" servID connEnv nid uEnv preprocess sess
-    r <- waitCatch io
-    case r of
-      Left e  -> liftIO $ errorM "Metro.Server" $ "Handle connection error " ++ show e
-      Right _ -> return ()
+  eConnEnv <- tryAny $ initConnEnv (mapTP stp)
+  case eConnEnv of
+    Left e -> liftIO $ errorM "Metro.Server" $ "Init connection error " ++ show e
+    Right connEnv -> do
+      emnid <- liftIO $ tryAny $ prepare serveServ servID connEnv
+      case emnid of
+        Left e -> do
+          liftIO $ errorM "Metro.Server" $ "Prepare connection error " ++ show e
+          liftIO $ closeTP $ transport connEnv
+        Right Nothing -> liftIO $ closeTP $ transport connEnv
+        Right (Just (nid, uEnv)) -> do
+          (_, io) <- handleConn "Client" servID connEnv nid uEnv preprocess sess
+          r <- waitCatch io
+          case r of
+            Left e  -> liftIO $ errorM "Metro.Server" $ "Handle connection error " ++ show e
+            Right _ -> return ()
 
 handleConn
   :: (MonadUnliftIO m, Transport tp, Show nid, Eq nid, Ord nid, Eq k, Ord k, GetPacketId k rpkt, RecvPacket u rpkt, Servable serv)
