@@ -20,10 +20,10 @@ import           Metro.Example.Types             (Command (..), File (..))
 import           Network.HTTP.Types              (status400, status500)
 import           Network.Wai.Handler.Warp        (setHost, setPort)
 import           UnliftIO
-import           Web.Scotty                      (ActionM, ScottyM, body, get,
-                                                  json, param, post, put, raw,
-                                                  scottyOpts, settings, status,
-                                                  finish)
+import           Web.Scotty                      (ActionM, ScottyM, body,
+                                                  finish, get, json, pathParam,
+                                                  post, put, queryParam, raw,
+                                                  scottyOpts, settings, status)
 
 startWeb :: (Transport tp) => IOMap ByteString (DeviceEnv tp) -> String -> Int -> IO ()
 startWeb devicesEnv host port =
@@ -40,7 +40,7 @@ application devicesEnv = do
 
 requestHandler :: (Transport tp) => IOMap ByteString (DeviceEnv tp) -> ActionM ()
 requestHandler devicesEnv = do
-  ip <- param "uuid"
+  ip <- pathParam "uuid"
   wb <- body
   env0 <- Map.lookup ip devicesEnv
   case env0 of
@@ -57,8 +57,8 @@ uploadHandler
   => (File -> Command)
   -> IOMap ByteString (DeviceEnv tp) -> ActionM ()
 uploadHandler cmd devicesEnv = do
-  ip <- param "uuid"
-  fn <- param "fileName"
+  ip <- pathParam "uuid"
+  fn <- queryParam "fileName"
   wb <- body
   when (B.length fn > 255) $ do
     status status400
@@ -76,8 +76,8 @@ uploadHandler cmd devicesEnv = do
 
 downloadHandler :: (Transport tp) => IOMap ByteString (DeviceEnv tp) -> ActionM ()
 downloadHandler devicesEnv = do
-  ip <- param "uuid"
-  fn <- param "fileName"
+  ip <- pathParam "uuid"
+  fn <- queryParam "fileName"
   when (B.length fn > 255) $ do
     status status400
     json $ object [ "err" .= ("fileName too long (max 255 bytes)" :: String) ]
@@ -94,7 +94,7 @@ downloadHandler devicesEnv = do
 
 endHandler :: (Transport tp) => IOMap ByteString (DeviceEnv tp) -> ActionM ()
 endHandler devicesEnv = do
-  ip <- param "uuid"
+  ip <- pathParam "uuid"
   env0 <- Map.lookup ip devicesEnv
   case env0 of
     Nothing -> do
