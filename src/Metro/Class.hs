@@ -27,7 +27,7 @@ import           Data.Binary.Get      (Decoder (..), pushChunk,
                                        runGetIncremental)
 import           Data.ByteString      (ByteString)
 import           Data.ByteString.Lazy (toStrict)
-import           UnliftIO             (MonadIO, MonadUnliftIO)
+import           UnliftIO             (MonadIO, MonadUnliftIO, throwIO)
 
 data TransportError = TransportClosed
     deriving (Show, Eq, Ord)
@@ -78,8 +78,8 @@ recvBinary _ putBack recv = do
   r <- recvDecoder dec recv
   case r of
     Done buf _ pkt -> putBack buf >> return pkt
-    Fail buf _ err -> putBack buf >> error err
-    _              -> error "not enough bytes"
+    Fail buf _ err -> putBack buf >> throwIO (userError err)
+    _              -> throwIO (userError "recvBinary: decoder ended unexpectedly")
 
 
 recvDecoder :: Monad m => Decoder rpkt -> (Int -> m ByteString) -> m (Decoder rpkt)
