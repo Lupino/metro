@@ -59,7 +59,7 @@ module Metro.Node
   , setPoolSize
   ) where
 
-import           Control.Monad              (forM, forever, when)
+import           Control.Monad              (forever, unless, when)
 import           Control.Monad.Reader.Class (MonadReader (ask), asks)
 import           Control.Monad.Trans.Class  (MonadTrans (..))
 import           Control.Monad.Trans.Reader (ReaderT (..), runReaderT)
@@ -70,7 +70,7 @@ import qualified Data.IOMap                 as Map (delete, elems, empty,
 import           Data.Maybe                 (fromMaybe, isJust)
 import           Metro.Class                (GetPacketId, RecvPacket,
                                              SendPacket, SetPacketId, Transport,
-                                             getPacketId)
+                                             TransportError (..), getPacketId)
 import           Metro.Conn                 (ConnEnv, ConnT, FromConn (..),
                                              close, receive, runConnT)
 import           Metro.Session              (SessionEnv (sessionId), SessionT,
@@ -221,13 +221,15 @@ newSessionEnv sTout sid = do
   dTout <- readTVarIO sessTimeout
   sEnv <- S.newSessionEnv uEnv nodeId sid (fromMaybe dTout sTout) []
   case nodeMode of
-    Single -> atomically $ do
-      sess <- readTVar nodeSession
-      case sess of
-        Nothing -> writeTVar nodeSession $ Just sEnv
-        Just _  -> do
-          state <- readTVar nodeStatus
-          when state retrySTM
+    Single -> do
+      inserted <- atomically $ do
+        sess <- readTVar nodeSession
+        case sess of
+          Nothing -> writeTVar nodeSession (Just sEnv) >> pure True
+          Just _  -> do
+            state <- readTVar nodeStatus
+            if state then retrySTM else pure False
+      unless inserted $ throwIO TransportClosed
     Multi -> Map.insert sid sEnv sessionList
   return sEnv
 
@@ -332,8 +334,14 @@ nodeState :: MonadIO m => NodeT u nid k rpkt tp m Bool
 nodeState = readTVarIO =<< asks nodeStatus
 
 doFeedError :: MonadIO m => NodeT u nid k rpkt tp m ()
-doFeedError =
-  asks sessionList >>= Map.elems >>= mapM_ go
+doFeedError = do
+  NodeEnv {..} <- ask
+  case nodeMode of
+    Single -> do
+      ms <- readTVarIO nodeSession
+      mapM_ go ms
+    Multi ->
+      Map.elems sessionList >>= mapM_ go
   where go :: MonadIO m => SessionEnv u nid k rpkt -> NodeT u nid k rpkt tp m ()
         go aEnv = runSessionT_ aEnv $ feed Nothing
 
@@ -384,8 +392,13 @@ getNodeId = asks nodeId
 
 runCheckSessionState :: (MonadUnliftIO m, Eq k, Ord k) => NodeT u nid k rpkt tp m ()
 runCheckSessionState = do
-  sessList <- asks sessionList
-  mapM_ (checkSessionState sessList) =<< Map.elems sessList
+  NodeEnv {..} <- ask
+  case nodeMode of
+    Single -> do
+      ms <- readTVarIO nodeSession
+      mapM_ (checkSingleSessionState nodeSession) ms
+    Multi ->
+      mapM_ (checkSessionState sessionList) =<< Map.elems sessionList
 
   where checkSessionState
           :: (MonadUnliftIO m, Eq k, Ord k)
@@ -397,8 +410,25 @@ runCheckSessionState = do
               feed Nothing
               Map.delete (sessionId sessEnv) sessList
 
+        checkSingleSessionState
+          :: MonadUnliftIO m
+          => TVar (Maybe (SessionEnv u nid k rpkt)) -> SessionEnv u nid k rpkt -> NodeT u nid k rpkt tp m ()
+        checkSingleSessionState sessRef sessEnv =
+          runSessionT_ sessEnv $ do
+            to <- isTimeout
+            when to $ do
+              feed Nothing
+              atomically $ writeTVar sessRef Nothing
+
 getSessionSize :: MonadIO m => NodeEnv u nid k rpkt -> m Int
-getSessionSize NodeEnv {..} = Map.size sessionList
+getSessionSize NodeEnv {..} =
+  case nodeMode of
+    Single -> do
+      ms <- readTVarIO nodeSession
+      pure $ case ms of
+        Nothing -> 0
+        Just _  -> 1
+    Multi -> Map.size sessionList
 
 getSessionSize1 :: MonadIO m => NodeEnv1 u nid k rpkt tp -> m Int
 getSessionSize1 NodeEnv1 {..} = getSessionSize nodeEnv
