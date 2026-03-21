@@ -26,7 +26,9 @@ newBSHandle = newBSHandle_ 41943040 -- 40M
 
 newBSHandle_ :: MonadIO m => Int -> ByteString -> m BSHandle
 newBSHandle_ size bs = do
-  state <- newTVarIO False
+  -- Handle starts active so packets arriving before `newTP` attaches are buffered.
+  -- This avoids dropping early UDP datagrams in session startup races.
+  state <- newTVarIO True
   BSHandle size state <$> newTVarIO bs
 
 feed :: MonadIO m => BSHandle -> ByteString -> m ()
@@ -34,7 +36,7 @@ feed (BSHandle size state h) bs = atomically $ do
   st <- readTVar state
   when st $ do
     bs0 <- readTVar h
-    when (B.length bs0 > size) retrySTM
+    when (B.length bs0 + B.length bs > size) retrySTM
     writeTVar h $ bs0 <> bs
 
 closeBSHandle :: MonadIO m => BSHandle -> m ()
