@@ -19,6 +19,7 @@ import           Data.ByteString.Lazy (toStrict)
 import           Data.Default.Class   (Default (..))
 import           Data.Word            (Word16)
 import qualified Metro.Class          as Class
+import           UnliftIO             (throwIO)
 
 
 newtype PacketLength = PacketLength Int
@@ -123,7 +124,18 @@ instance Class.RecvPacket () Packet
 instance Class.FindMagic Packet
 
 instance Class.SendPacket Packet where
-  sendPacket = Class.sendBinary . preparePacket
+  sendPacket pkt send = do
+    let pkt' = preparePacket pkt
+        PacketLength l = packetLength pkt'
+    case packetCmd pkt' of
+      Upload (File fn _) | B.length fn > 255 ->
+        throwIO $ userError "File name too long: exceeds 255 bytes"
+      Append (File fn _) | B.length fn > 255 ->
+        throwIO $ userError "File name too long: exceeds 255 bytes"
+      _ ->
+        if l > fromIntegral (maxBound :: Word16)
+          then throwIO $ userError "Packet too large: packetLength exceeds Word16"
+          else Class.sendBinary pkt' send
 
 instance Class.GetPacketId Word16 Packet where
   getPacketId = packetId

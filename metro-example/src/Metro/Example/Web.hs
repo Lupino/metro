@@ -4,8 +4,10 @@ module Metro.Example.Web
   ( startWeb
   ) where
 
+import           Control.Monad                   (when)
 import           Data.Aeson                      (object, (.=))
 import           Data.ByteString                 (ByteString)
+import qualified Data.ByteString                 as B (length)
 import           Data.ByteString.Lazy            (fromStrict, toStrict)
 import           Data.Default.Class              (def)
 import           Data.IOMap                      (IOMap)
@@ -15,12 +17,13 @@ import           Metro                           (Transport)
 import           Metro.Example.Device            (DeviceEnv, request,
                                                   runDeviceT)
 import           Metro.Example.Types             (Command (..), File (..))
-import           Network.HTTP.Types              (status500)
+import           Network.HTTP.Types              (status400, status500)
 import           Network.Wai.Handler.Warp        (setHost, setPort)
 import           UnliftIO
 import           Web.Scotty                      (ActionM, ScottyM, body, get,
                                                   json, param, post, put, raw,
-                                                  scottyOpts, settings, status)
+                                                  scottyOpts, settings, status,
+                                                  finish)
 
 startWeb :: (Transport tp) => IOMap ByteString (DeviceEnv tp) -> String -> Int -> IO ()
 startWeb devicesEnv host port =
@@ -57,6 +60,10 @@ uploadHandler cmd devicesEnv = do
   ip <- param "uuid"
   fn <- param "fileName"
   wb <- body
+  when (B.length fn > 255) $ do
+    status status400
+    json $ object [ "err" .= ("fileName too long (max 255 bytes)" :: String) ]
+    finish
   env0 <- Map.lookup ip devicesEnv
   case env0 of
     Nothing -> do
@@ -71,6 +78,10 @@ downloadHandler :: (Transport tp) => IOMap ByteString (DeviceEnv tp) -> ActionM 
 downloadHandler devicesEnv = do
   ip <- param "uuid"
   fn <- param "fileName"
+  when (B.length fn > 255) $ do
+    status status400
+    json $ object [ "err" .= ("fileName too long (max 255 bytes)" :: String) ]
+    finish
   env0 <- Map.lookup ip devicesEnv
   case env0 of
     Nothing -> do

@@ -36,6 +36,7 @@ import           Metro.TP.Debug       (DebugMode (..), debugConfig)
 import           Metro.TP.Socket      (socket)
 import           Metro.Utils          (setupLog)
 import           System.Log           (Priority (..))
+import           Text.Read            (readMaybe)
 import           UnliftIO             (liftIO)
 import           UnliftIO.Concurrent  (forkIO, threadDelay)
 
@@ -55,7 +56,8 @@ instance FromJSON ServerConfig where
     sockPort  <- o .: "socket"
     keepalive <- o .: "keepalive"
     sessTout  <- o .: "session_timeout"
-    logLevel  <- read <$> o .:? "log_level" .!= "ERROR"
+    logLevelS <- o .:? "log_level" .!= "ERROR"
+    logLevel  <- maybe (fail $ "invalid log_level: " ++ logLevelS) pure (readMaybe logLevelS)
     return ServerConfig{..}
 
 type ExampleEnv serv = ServerEnv serv () ByteString Word16 Packet
