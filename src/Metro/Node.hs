@@ -257,13 +257,14 @@ tryMainLoop preprocess = do
   r <- tryAny $ mainLoop preprocess
   case r of
     Left err -> do
-      case show err of
-        "TransportClosed" -> stopNodeT
-        ('N':'e':'t':'w':'o':'r':'k':_) -> stopNodeT
-        errS -> do
-          liftIO $ errorM "Metro.Node" $ "MainLoop Error: " ++ errS
-          close <- asks onExcColse
-          when close stopNodeT
+      if isTransportClosed err
+        then stopNodeT
+        else case show err of
+          ('N':'e':'t':'w':'o':'r':'k':_) -> stopNodeT
+          errS -> do
+            liftIO $ errorM "Metro.Node" $ "MainLoop Error: " ++ errS
+            close <- asks onExcColse
+            when close stopNodeT
 
     Right _  -> pure ()
 
@@ -285,10 +286,18 @@ tryDoFeed rpkt sessionHandler = do
   r <- tryAny $ doFeed rpkt sessionHandler
   case r of
     Left e  ->
-      case show e of
-        ('N':'e':'t':'w':'o':'r':'k':_) -> stopNodeT
-        ee -> liftIO $ errorM "Metro.Node" $ "DoFeed Error: " ++ ee
+      if isTransportClosed e
+        then stopNodeT
+        else case show e of
+          ('N':'e':'t':'w':'o':'r':'k':_) -> stopNodeT
+          ee -> liftIO $ errorM "Metro.Node" $ "DoFeed Error: " ++ ee
     Right _ -> pure ()
+
+isTransportClosed :: SomeException -> Bool
+isTransportClosed e =
+  case fromException e of
+    Just TransportClosed -> True
+    _                    -> False
 
 doFeed
   :: (MonadUnliftIO m, GetPacketId k rpkt, Eq k, Ord k)
