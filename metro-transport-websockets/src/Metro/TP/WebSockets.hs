@@ -7,6 +7,7 @@ module Metro.TP.WebSockets
   , clientConfig
   ) where
 
+import           Control.Exception        (bracketOnError)
 import           Data.ByteString           (ByteString)
 import qualified Data.ByteString.Char8     as BC
 import qualified Data.ByteString.Lazy      as BL
@@ -41,15 +42,15 @@ instance Transport tp => Transport (WebSocket tp) where
   data TransportConfig (WebSocket tp) =
       WSServer (TransportConfig tp)
     | WSClient (TransportConfig tp) String String
-  newTP (WSServer config) = do
-    transport <- newTP config
-    stream <- mkStream transport
-    pendingConn <- WS.makePendingConnectionFromStream stream WS.defaultConnectionOptions
-    flip WS transport <$> WS.acceptRequest pendingConn
-  newTP (WSClient config host port) = do
-    transport <- newTP config
-    stream <- mkStream transport
-    flip WS transport <$> WS.newClientConnection stream host port WS.defaultConnectionOptions []
+  newTP (WSServer config) =
+    bracketOnError (newTP config) closeTP $ \transport -> do
+      stream <- mkStream transport
+      pendingConn <- WS.makePendingConnectionFromStream stream WS.defaultConnectionOptions
+      flip WS transport <$> WS.acceptRequest pendingConn
+  newTP (WSClient config host port) =
+    bracketOnError (newTP config) closeTP $ \transport -> do
+      stream <- mkStream transport
+      flip WS transport <$> WS.newClientConnection stream host port WS.defaultConnectionOptions []
 
   recvData (WS conn _) = wsRecvData conn
   sendData (WS conn _) = wsSendData conn
