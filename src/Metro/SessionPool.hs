@@ -35,23 +35,24 @@ type FreeStates rpkt = TVar [PoolerState rpkt]
 newtype PoolSize = PoolSize (TVar Int)
 
 newPoolSize :: MonadIO m => Int -> m PoolSize
-newPoolSize size = PoolSize <$> newTVarIO size
+newPoolSize size = PoolSize <$> newTVarIO (max 1 size)
 
 getPoolSize :: PoolSize -> STM Int
 getPoolSize (PoolSize h) = readTVar h
 
 setPoolSize :: MonadIO m => PoolSize -> Int -> m ()
-setPoolSize (PoolSize h) = atomically . writeTVar h
+setPoolSize (PoolSize h) = atomically . writeTVar h . max 1
 
 
 data SessionPool rpkt = SessionPool
-  { poolerList  :: TVar [SessionPooler rpkt]
-  , freeStates  :: FreeStates rpkt
-  , packetList  :: TVar [rpkt]
-  , maxPoolSize :: PoolSize
-  , queue       :: TQueue (PoolerState rpkt)
-  , nodeStatus  :: TVar Bool
-  , myIO        :: TVar (Maybe (Async ()))
+  { poolerList      :: TVar [SessionPooler rpkt]
+  , creatingPoolers :: TVar Int
+  , freeStates      :: FreeStates rpkt
+  , packetList      :: TVar [rpkt]
+  , maxPoolSize     :: PoolSize
+  , queue           :: TQueue (PoolerState rpkt)
+  , nodeStatus      :: TVar Bool
+  , myIO            :: TVar (Maybe (Async ()))
   }
 
 
@@ -60,6 +61,7 @@ newSessionPool
   => PoolSize -> TVar Bool -> m (SessionPool rpkt)
 newSessionPool maxPoolSize nodeStatus = do
   poolerList <- newTVarIO []
+  creatingPoolers <- newTVarIO 0
   freeStates <- newTVarIO []
   packetList <- newTVarIO []
   queue      <- newTQueueIO
@@ -117,7 +119,9 @@ spawn SessionPool {..} rpkt = atomically $ do
         }
 
       Nothing -> do
-        size <- length <$> readTVar poolerList
+        running <- length <$> readTVar poolerList
+        creating <- readTVar creatingPoolers
+        let size = running + creating
         maxSize <- getPoolSize maxPoolSize
         if size < maxSize then do
           state <- newTVar SessionState
@@ -125,13 +129,14 @@ spawn SessionPool {..} rpkt = atomically $ do
             , stateIsBusy = True
             , stateAlive  = True
             }
+          modifyTVar' creatingPoolers (+1)
           writeTQueue queue state
 
         else do
           pl <- length <$> readTVar packetList
-          if pl > maxSize then retrySTM
-                          else do
-            modifyTVar' packetList (rpkt:)
+          if pl >= maxSize then retrySTM
+                           else do
+            modifyTVar' packetList (++ [rpkt])
             when (size > maxSize) $ do
               poolers <- readTVar poolerList
               writeTVar poolerList $! drop (size - maxSize) poolers
@@ -152,6 +157,7 @@ runSessionPool SessionPool {..} work = do
     case mState of
       Nothing -> exit ()
       Just state -> do
+        atomically $ modifyTVar' creatingPoolers (max 0 . subtract 1)
         io <- lift $ startPoolerIO packetList freeStates state work
         atomically $ modifyTVar' poolerList (SessionPooler state io:)
 
