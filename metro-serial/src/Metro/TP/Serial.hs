@@ -10,43 +10,54 @@ module Metro.TP.Serial
   , withSerial
   ) where
 
+import           Control.Monad              (unless)
 import           Data.ByteString            (ByteString)
 import qualified Data.ByteString            as B (drop, length, take)
-import           Metro.Class                (Transport (..))
+import           Metro.Class                (Transport (..),
+                                             TransportError (..))
+import qualified System.Hardware.Serialport as S (closeSerial, flush,
+                                                  openSerial, recv, send,
+                                                  withSerial)
 import           System.Hardware.Serialport (CommSpeed (..), SerialPort,
                                              SerialPortSettings (..),
                                              defaultSerialSettings)
-import qualified System.Hardware.Serialport as S (closeSerial, openSerial, recv,
-                                                  send, withSerial)
 import           UnliftIO                   (TVar, atomically, newTVarIO,
-                                             readTVarIO, writeTVar)
+                                             readTVarIO, throwIO, tryAny,
+                                             writeTVar)
 
 data Serial = Serial
   { portPath       :: String
+  , serialState    :: TVar Bool
   , serialPort     :: TVar (Maybe SerialPort)
   , serialSettings :: SerialPortSettings
   }
 
 newSerial :: String -> SerialPortSettings -> Maybe SerialPort -> IO Serial
 newSerial portPath serialSettings port = do
+  serialState <- newTVarIO True
   serialPort <- newTVarIO port
   return Serial {..}
 
 sendAll :: SerialPort -> ByteString -> IO ()
-sendAll _ "" = pure ()
+sendAll port "" = S.flush port
 sendAll port bs = do
   r <- S.send port $ B.take 8192 bs
   if r > 0 then sendAll port $! B.drop r bs
-           else pure ()
+           else do
+             S.flush port
+             throwIO $ userError "Serial send failed: wrote 0 bytes"
 
 recv :: SerialPort -> Int -> IO ByteString
 recv port nbytes = do
   bs <- S.recv port nbytes
-  if B.length bs == 0 then recv port nbytes
-                      else return bs
+  if B.length bs == 0
+    then throwIO TransportClosed
+    else return bs
 
 getSerialPort :: Serial -> IO SerialPort
 getSerialPort Serial {..} = do
+  alive <- readTVarIO serialState
+  unless alive $ throwIO $ userError "Serial transport closed"
   mport <- readTVarIO serialPort
   case mport of
     Just port -> return port
@@ -60,11 +71,12 @@ withSerialPort s f b = getSerialPort s >>= flip f b
 
 tryCloseSerial :: Serial -> IO ()
 tryCloseSerial Serial {..} = do
+  atomically $ writeTVar serialState False
   mport <- readTVarIO serialPort
   case mport of
     Nothing -> pure ()
     Just port -> do
-      S.closeSerial port
+      _ <- tryAny $ S.closeSerial port
       atomically $ writeTVar serialPort Nothing
 
 instance Transport Serial where
