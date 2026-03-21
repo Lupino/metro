@@ -23,9 +23,10 @@ module Metro.Class
 
 import           Control.Exception    (Exception)
 import           Data.Binary          (Binary (get), encode)
-import           Data.Binary.Get      (Decoder (..), pushChunk,
+import           Data.Binary.Get      (Decoder (..), pushChunk, pushEndOfInput,
                                        runGetIncremental)
 import           Data.ByteString      (ByteString)
+import qualified Data.ByteString      as B
 import           Data.ByteString.Lazy (toStrict)
 import           UnliftIO             (MonadIO, MonadUnliftIO, throwIO)
 
@@ -85,7 +86,9 @@ recvBinary _ putBack recv = do
 recvDecoder :: Monad m => Decoder rpkt -> (Int -> m ByteString) -> m (Decoder rpkt)
 recvDecoder (Partial f) recv = do
   bs <- recv 1
-  recvDecoder (pushChunk (Partial f) bs) recv
+  if B.null bs
+    then return $ pushEndOfInput (Partial f)
+    else recvDecoder (pushChunk (Partial f) bs) recv
 recvDecoder dec _ = return dec
 
 sendBinary :: (MonadIO m, Binary spkt) => spkt -> (ByteString -> m ()) -> m ()
