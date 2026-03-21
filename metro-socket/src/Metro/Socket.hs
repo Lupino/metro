@@ -208,8 +208,12 @@ splitHostPort hostPort =
               -- values such as "2001:db8:1:2:3:4:5:6" as host+port.
               hostLooksComplete = not (null host) && last host /= ':'
               hostHasCompression = "::" `isInfixOf` host
-          in if not (null port) && all isDigit port && hostLooksComplete && hostHasCompression
-               then (Just host, Just port)
+          in if hostLooksComplete && hostHasCompression
+               then if null port
+                    then (Just host, Nothing)
+                    else if all isDigit port
+                         then (Just host, Just port)
+                         else (Just s, Nothing)
                else (Just s, Nothing)
 
 dropS :: String -> String
