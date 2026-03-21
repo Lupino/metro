@@ -65,8 +65,10 @@ transportBackend transport = TLS.Backend
 -- | Close a TLS 'Context' and its underlying socket.
 --
 closeTLS :: Context -> IO ()
-closeTLS ctx = (TLS.bye ctx >> TLS.contextClose ctx) -- sometimes socket was closed before 'TLS.bye'
-    `catch` (\(_::SomeException) -> return ())   -- so we catch the 'Broken pipe' error here
+closeTLS ctx = do
+  -- sometimes socket is already closed before 'TLS.bye'
+  TLS.bye ctx `catch` (\(_::SomeException) -> return ())
+  TLS.contextClose ctx `catch` (\(_::SomeException) -> return ())
 
 
 tlsConfig :: (Transport tp, TLSParams params) => params -> TransportConfig tp -> TransportConfig TLS
