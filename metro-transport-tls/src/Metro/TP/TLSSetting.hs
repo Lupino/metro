@@ -30,10 +30,12 @@ import qualified Network.TLS.Extra          as TLS (ciphersuite_strong)
 makeCAStore :: FilePath -> IO X509.CertificateStore
 makeCAStore fp = do
   bs <- B.readFile fp
-  let Right pems = X509.pemParseBS bs
+  pems <- case X509.pemParseBS bs of
+    Left err -> ioError $ userError err
+    Right ps -> pure ps
   case mapM (X509.decodeSignedCertificate . X509.pemContent) pems of
     Right cas -> return (X509.makeCertificateStore cas)
-    Left err  -> error err
+    Left err  -> ioError $ userError err
 
 -- | make a simple tls 'TLS.ClientParams' that will validate server and use tls connection
 -- without providing client's own certificate. suitable for connecting server which don't
@@ -88,7 +90,7 @@ makeClientParams' pub certs priv tca servid = do
             TLS.onCertificateRequest = const . return $ Just c'
           }
         }
-    Left err -> error err
+    Left err -> ioError $ userError err
 
 -- | make a simple tls 'TLS.ServerParams' without validating client's certificate.
 --
@@ -110,7 +112,7 @@ makeServerParams pub certs priv = do
           }
         , TLS.serverSupported = def { TLS.supportedCiphers = TLS.ciphersuite_strong }
         }
-    Left err -> error err
+    Left err -> ioError $ userError err
 
 -- | make a tls 'TLS.ServerParams' that also validating client's certificate.
 --
