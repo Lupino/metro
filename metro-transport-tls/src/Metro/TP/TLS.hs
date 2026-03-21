@@ -32,10 +32,10 @@ instance Transport TLS where
   -- This operation may throw 'TLS.TLSException' on failure.
   --
   newTP (TLSConfig params config) = do
-    transport <- newTP config
-    bracketOnError (TLS.contextNew (transportBackend transport) params) closeTLS $ \ctx -> do
-      TLS.handshake ctx
-      return $ TLS (getTPName transport) ctx
+    bracketOnError (newTP config) closeTP $ \transport ->
+      bracketOnError (TLS.contextNew (transportBackend transport) params) closeTLS $ \ctx -> do
+        TLS.handshake ctx
+        return $ TLS (getTPName transport) ctx
 
   recvData (TLS _ ctx) = const $ TLS.recvData ctx
   sendData (TLS _ ctx) = TLS.sendData ctx . BL.fromStrict
