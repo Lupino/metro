@@ -1,10 +1,10 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.33.0.
+-- This file has been generated from package.yaml by hpack version 0.38.1.
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 827994d7edfa7de9ddc554689c94455f9ac4747c7e0fa2e21a5647547d6e9b24
+-- hash: 0ac5b1ff07deeb89a5b165beb4fefb73f0d0fa0867458297ac1961922a8791dc
 
 name:           metro-transport-websockets
 version:        0.1.0.0
@@ -38,5 +38,6 @@ library
       base >=4.7 && <5
     , bytestring
     , metro
+    , unliftio
     , websockets
   default-language: Haskell2010

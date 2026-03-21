@@ -7,12 +7,13 @@ module Metro.TP.WebSockets
   , clientConfig
   ) where
 
-import           Data.ByteString           (ByteString, empty)
+import           Data.ByteString           (ByteString)
 import qualified Data.ByteString.Char8     as BC
 import qualified Data.ByteString.Lazy      as BL
 import           Metro.Class               (Transport (..))
 import           Network.WebSockets        as WS
 import qualified Network.WebSockets.Stream as WS
+import           UnliftIO                  (throwIO, tryAny)
 
 mkStream :: Transport tp => tp -> IO WS.Stream
 mkStream transport =
@@ -29,7 +30,7 @@ wsRecvData conn _ = do
   msg <- WS.receiveDataMessage conn
   case msg of
     WS.Binary bs -> pure $ BL.toStrict bs
-    _            -> pure empty
+    _            -> throwIO $ userError "WebSocket transport expects binary frames only"
 
 wsSendData :: WS.Connection -> ByteString -> IO ()
 wsSendData conn = WS.sendBinaryData conn . BL.fromStrict
@@ -53,7 +54,9 @@ instance Transport tp => Transport (WebSocket tp) where
   recvData (WS conn _) = wsRecvData conn
   sendData (WS conn _) = wsSendData conn
 
-  closeTP (WS _ tp) = closeTP tp
+  closeTP (WS conn tp) = do
+    _ <- tryAny $ WS.sendClose conn (BC.pack "bye")
+    closeTP tp
   getTPName (WS _ tp) = getTPName tp
 
 
