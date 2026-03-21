@@ -1,4 +1,5 @@
 import           Control.Monad                        (unless)
+import           Control.Exception                    (SomeException, try)
 import           Crypto.Cipher.AES
 import           Crypto.Cipher.Blowfish
 import           Crypto.Cipher.Camellia
@@ -11,7 +12,7 @@ import           Crypto.Cipher.Types                  (BlockCipher (..),
 import           Data.ByteString                      (ByteString)
 import qualified Data.ByteString                      as B (length, null)
 import           Metro.Class                          (Transport (..))
-import           Metro.TP.BS                          (makePipe)
+import           Metro.TP.BS                          (BSTP, makePipe)
 import           Metro.TP.Crypto
 import           Test.QuickCheck
 import           Test.QuickCheck.Instances.ByteString ()
@@ -52,11 +53,21 @@ testCrypto1
 testCrypto1 cipher method =
   quickCheck $ withMaxSuccess 10 (testCrypto cipher method)
 
+testEmptyKeyRejected :: IO ()
+testEmptyKeyRejected = do
+  (pipeLC, _) <- makePipe "left" "right"
+  r <- try (mkTP (undefined :: AES128) "CBC" "" pipeLC) :: IO (Either SomeException (Crypto AES128 BSTP))
+  case r of
+    Left _  -> return ()
+    Right _ -> ioError $ userError "Expected empty key to be rejected"
+
 methods :: [String]
 methods = [ "CBC", "cbc", "CFB", "cfb", "ECB", "ecb", "CTR", "ctr" ]
 
 main :: IO ()
 main = do
+  testEmptyKeyRejected
+
   mapM_ (testCrypto1 (undefined :: AES128)) methods
   mapM_ (testCrypto1 (undefined :: AES192)) methods
   mapM_ (testCrypto1 (undefined :: AES256)) methods

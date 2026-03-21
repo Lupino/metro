@@ -187,13 +187,15 @@ makeCrypto
   :: forall cipher tp. (BlockCipher cipher, Cipher cipher)
   => cipher -> String -> String -> TransportConfig tp -> TransportConfig (Crypto cipher tp)
 makeCrypto cipher method key c =
-  case getCryptoMethod cipher method of
-    Nothing -> InvalidCryptoConfig $ "crypto method not support: " ++ method
-    Just m  ->
-      case cipherInit key0 of
-        CryptoFailed e         -> InvalidCryptoConfig $ "Cipher init failed " ++ show e
-        CryptoPassed (newCipher :: cipher) ->
-          crypto m newCipher c
+  if null key
+    then InvalidCryptoConfig "crypto key is empty"
+    else case getCryptoMethod cipher method of
+      Nothing -> InvalidCryptoConfig $ "crypto method not support: " ++ method
+      Just m  ->
+        case cipherInit key0 of
+          CryptoFailed e         -> InvalidCryptoConfig $ "Cipher init failed " ++ show e
+          CryptoPassed (newCipher :: cipher) ->
+            crypto m newCipher c
 
   where size = getKeySize $ cipherKeySize cipher
         key0 =
