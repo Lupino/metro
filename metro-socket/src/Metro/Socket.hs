@@ -18,7 +18,7 @@ import           Data.List         (isInfixOf, isPrefixOf)
 import           Data.Maybe        (listToMaybe)
 import           Network.Socket    hiding (bind, connect, listen)
 import qualified Network.Socket    as S (bind, connect, listen)
-import           System.Directory  (doesPathExist, removeFile)
+import           System.Directory  (doesPathExist)
 import           UnliftIO          (tryIO)
 
 -- Returns the first action from a list which does not throw an exception.
@@ -118,11 +118,8 @@ listen port =
     when exists $ do
       e <- tryIO $ connectToFile sockFile
       case e of
-        Left _ -> do
-          rm <- tryIO $ removeFile sockFile
-          case rm of
-            Left _  -> ioError $ userError "Metro.Socket: bind: stale socket path exists and cannot be removed"
-            Right _ -> pure ()
+        Left _ ->
+          ioError $ userError "Metro.Socket: bind: socket path exists but is not active; remove it manually"
         Right sock -> do
           close sock
           ioError $ userError "Metro.Socket: bind: resource busy (Address already in use)"
