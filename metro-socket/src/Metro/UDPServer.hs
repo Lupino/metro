@@ -13,7 +13,8 @@ module Metro.UDPServer
 
 import           Control.Monad      (void)
 import           Data.IOMap         (IOMap)
-import qualified Data.IOMap         as Map (delete, empty, insert, lookup)
+import qualified Data.IOMap         as Map (delete, elems, empty, insert,
+                                            lookup)
 import           Metro.Class        (Servable (..), TransportConfig)
 import           Metro.Socket       (bindTo)
 import           Metro.TP.BS        (BSHandle, bsTPConfig, closeBSHandle, feed,
@@ -39,17 +40,25 @@ instance Servable UDPServer where
     bsHandle <- Map.lookup addr handleList
     case bsHandle of
       Just h  -> feed h bs
-      Nothing ->
+      Nothing -> do
+        -- Register handle before starting async session to avoid duplicate
+        -- session creation for packets arriving in a narrow race window.
+        h <- newBSHandle bs
+        config <- newTransportConfig us addr h
         void . async $ do
-          h <- newBSHandle bs
-          config <- newTransportConfig us addr h
-          done $ Just (addr, config)
-          closeBSHandle h
-          Map.delete addr handleList
+          finally
+            (done $ Just (addr, config))
+            (Map.delete addr handleList >> closeBSHandle h)
 
   onConnEnter _ _ = return ()
-  onConnLeave (UDPServer _ handleList) addr = Map.delete addr handleList
-  servClose (UDPServer serv _) = liftIO (Socket.close serv)
+  onConnLeave (UDPServer _ handleList) addr = do
+    mh <- Map.lookup addr handleList
+    mapM_ closeBSHandle mh
+    Map.delete addr handleList
+  servClose (UDPServer serv handleList) = do
+    hs <- Map.elems handleList
+    mapM_ closeBSHandle hs
+    void $ liftIO $ tryAny $ Socket.close serv
 
 udpServer :: String -> ServerConfig UDPServer
 udpServer = UDPConfig
