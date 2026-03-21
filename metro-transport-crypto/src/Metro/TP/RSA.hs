@@ -31,7 +31,6 @@ import           Data.ByteArray           (convert)
 import           Data.ByteString          (ByteString)
 import qualified Data.ByteString          as BS
 import qualified Data.ByteString.Lazy     as LBS
-import           Data.Either              (fromRight)
 import           Data.List                (find, isSuffixOf)
 import           Data.Maybe               (listToMaybe)
 import           Data.PEM                 (PEM (..), pemContent, pemParseBS,
@@ -421,8 +420,16 @@ loadPublicKeys :: FilePath -> IO [PublicKey]
 loadPublicKeys publicKeyFileOrDir = do
   isFile <- doesFileExist publicKeyFileOrDir
   if isFile
-    then fromRight [] <$> readPublicKeyListPEM publicKeyFileOrDir
-    else fromRight [] <$> readAllPublicKeysFromDirectory publicKeyFileOrDir
+    then do
+      r <- readPublicKeyListPEM publicKeyFileOrDir
+      case r of
+        Right ks -> pure ks
+        Left err -> ioError $ userError $ "Read RSA public key file failed: " ++ err
+    else do
+      r <- readAllPublicKeysFromDirectory publicKeyFileOrDir
+      case r of
+        Right ks -> pure ks
+        Left err -> ioError $ userError $ "Read RSA public key directory failed: " ++ err
 
 publicKeyFingerprint :: PublicKey -> ByteString
 publicKeyFingerprint key = convert (hash asn1Bytes :: Digest SHA256)
