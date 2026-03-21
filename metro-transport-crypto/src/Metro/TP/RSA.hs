@@ -12,7 +12,7 @@ module Metro.TP.RSA
   , generateKeyPair
   ) where
 
-import           Control.Exception        (displayException)
+import           Control.Exception        (bracketOnError, displayException)
 import           Control.Monad            (when, (<=<))
 import           Crypto.Cipher.AES        (AES256)
 import           Crypto.Cipher.Types      (Cipher (..), IV, ctrCombine, makeIV)
@@ -83,54 +83,53 @@ instance (Transport tp) => Transport (RSATP tp) where
 
   newTP (RSAConfig configMode privateKey publicKeyFileOrDir isClient config) = do
     readBuffer <- newTVarIO BS.empty
-    baseTp     <- newTP config
+    bracketOnError (newTP config) closeTP $ \baseTp -> do
 
-    -- 1. RSA Handshake: Always establish Identity regardless of subsequent mode
-    handshakeResult <- if isClient
-      then clientHandshake readBuffer privateKey publicKeyFileOrDir baseTp
-      else serverHandshake readBuffer privateKey publicKeyFileOrDir baseTp
+      -- 1. RSA Handshake: Always establish Identity regardless of subsequent mode
+      handshakeResult <- if isClient
+        then clientHandshake readBuffer privateKey publicKeyFileOrDir baseTp
+        else serverHandshake readBuffer privateKey publicKeyFileOrDir baseTp
 
-    case handshakeResult of
-      Nothing -> do
-        closeTP baseTp
-        throwIO $ userError "RSA Transport Error: Handshake failed. Identity unverified."
-      Just peerPub -> do
+      case handshakeResult of
+        Nothing ->
+          throwIO $ userError "RSA Transport Error: Handshake failed. Identity unverified."
+        Just peerPub -> do
 
-        -- 2. Mode Negotiation: Client determines mode, Server accepts it
-        actualMode <- if isClient
-          then do
-            -- Client: Send the configured mode to Server (Encrypted)
-            let modeBytes = LBS.toStrict $ encode configMode
-            sendDataOaep peerPub baseTp modeBytes
-            return configMode
-          else do
-            -- Server: Receive the mode from Client
-            -- Note: We ignore the 'configMode' passed in RSAConfig for the server
-            modeBytes <- recvDataOaep readBuffer privateKey baseTp
-            case decodeOrFail (LBS.fromStrict modeBytes) of
-              Left (_, _, err)    -> throwIO $ userError $ "Invalid RSA mode payload: " ++ err
-              Right (_, _, cMode) -> return (cMode :: RSAMode)
-
-        -- 3. Key Exchange: Negotiate AES Session Key ONLY if AES mode is requested
-        sKey <- case actualMode of
-          AES -> if isClient
+          -- 2. Mode Negotiation: Client determines mode, Server accepts it
+          actualMode <- if isClient
             then do
-              -- Client generates key and sends it encrypted with Server's PubKey
-              k <- getEntropy aesKeySize
-              sendDataOaep peerPub baseTp k
-              return k
+              -- Client: Send the configured mode to Server (Encrypted)
+              let modeBytes = LBS.toStrict $ encode configMode
+              sendDataOaep peerPub baseTp modeBytes
+              return configMode
             else do
-              -- Server receives the key.
-              recvDataOaep readBuffer privateKey baseTp
-          _ -> return BS.empty -- No session key needed for Plain or RSA-OAEP modes
+              -- Server: Receive the mode from Client
+              -- Note: We ignore the 'configMode' passed in RSAConfig for the server
+              modeBytes <- recvDataOaep readBuffer privateKey baseTp
+              case decodeOrFail (LBS.fromStrict modeBytes) of
+                Left (_, _, err)    -> throwIO $ userError $ "Invalid RSA mode payload: " ++ err
+                Right (_, _, cMode) -> return (cMode :: RSAMode)
 
-        return RSATP
-          { peerPublicKey = peerPub
-          , tp = baseTp
-          , rsaMode = actualMode -- Use the negotiated mode
-          , sessionKey = sKey
-          , ..
-          }
+          -- 3. Key Exchange: Negotiate AES Session Key ONLY if AES mode is requested
+          sKey <- case actualMode of
+            AES -> if isClient
+              then do
+                -- Client generates key and sends it encrypted with Server's PubKey
+                k <- getEntropy aesKeySize
+                sendDataOaep peerPub baseTp k
+                return k
+              else do
+                -- Server receives the key.
+                recvDataOaep readBuffer privateKey baseTp
+            _ -> return BS.empty -- No session key needed for Plain or RSA-OAEP modes
+
+          return RSATP
+            { peerPublicKey = peerPub
+            , tp = baseTp
+            , rsaMode = actualMode -- Use the negotiated mode
+            , sessionKey = sKey
+            , ..
+            }
 
   recvData RSATP {..} n = case rsaMode of
     Plain -> recvDataPlain readBuffer tp n
