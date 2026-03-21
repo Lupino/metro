@@ -377,13 +377,13 @@ requestAndRetry sTout retryTout spkt = do
   if alive then
     withSessionT sTout $ do
       S.send spkt
-      t <- forM retryTout $ \tout ->
-        async $ forever $ do
-          threadDelay $ tout * 1000 * 1000
-          S.send spkt
-      ret <- S.receive
-      mapM_ cancel t
-      return ret
+      t <- case retryTout of
+        Just tout | tout > 0 ->
+          Just <$> async (forever $ do
+            threadDelay $ tout * 1000 * 1000
+            S.send spkt)
+        _ -> pure Nothing
+      S.receive `finally` mapM_ cancel t
 
 
   else return Nothing
