@@ -35,25 +35,26 @@ module Metro.Server
   , handleConn
   ) where
 
-import           Control.Monad              (forM_, forever, unless, void, when)
+import           Control.Monad              (forM_, unless, void, when)
 import           Control.Monad.Reader.Class (MonadReader (ask), asks)
 import           Control.Monad.Trans.Class  (MonadTrans, lift)
 import           Control.Monad.Trans.Reader (ReaderT (..), runReaderT)
 import           Data.Either                (isLeft)
 import           Data.Int                   (Int64)
 import           Data.IOMap                 (IOMap)
-import qualified Data.IOMap                 as IOMap (delete, elems, empty)
+import qualified Data.IOMap                 as IOMap (delete, elems, empty,
+                                                      lookup)
 import qualified Data.IOMap.STM             as IOMapS (insert, lookup)
 import           Metro.Class                (GetPacketId, RecvPacket,
                                              Servable (..), Transport,
-                                             TransportConfig)
+                                             TransportConfig, closeTP)
 import           Metro.Conn                 hiding (close)
 import           Metro.Node                 (NodeEnv1, NodeMode (..), PoolSize,
                                              SessionMode (..), env, getNodeId,
                                              getTimer, initEnv1_, newPoolSize,
-                                             runCheckSessionState, runNodeT1,
-                                             setPoolSize, startNodeT_,
-                                             stopNodeT)
+                                             nodeState, runCheckSessionState,
+                                             runNodeT1, setPoolSize,
+                                             startNodeT_, stopNodeT)
 import qualified Metro.Node                 as Node
 import           Metro.Session              (SessionT)
 import           Metro.Utils                (foreverExit, getEpochTime)
@@ -259,14 +260,34 @@ handleConn n servID connEnv nid uEnv preprocess sess = do
     mapM_ (`runNodeT1` stopNodeT) env1
 
     io <- async $ do
-      onConnEnter serveServ servID
-      lift . runNodeT1 env0 $ startNodeT_ preprocess sess
-      onConnLeave serveServ servID
-      liftIO $ infoM "Metro.Server" (serveName ++ n ++ ": " ++ showNid nid ++ " disconnected")
-      nodeLeave <- readTVarIO onNodeLeave
-      case nodeLeave of
-        Nothing -> pure ()
-        Just f  -> liftIO $ f nid uEnv
+      finally
+        (do
+          onConnEnter serveServ servID
+          lift . runNodeT1 env0 $ startNodeT_ preprocess sess
+        )
+        (do
+          -- Ensure this connection's node is marked stopped even if startup
+          -- failed early (e.g. onConnEnter throws), then conditionally prune
+          -- map entry without deleting a newer replacement connection.
+          runNodeT1 env0 stopNodeT
+          mCur <- IOMap.lookup nid nodeEnvList
+          forM_ mCur $ \cur -> do
+            alive <- runNodeT1 cur nodeState
+            unless alive $ IOMap.delete nid nodeEnvList
+          eLeave <- tryAny $ onConnLeave serveServ servID
+          case eLeave of
+            Left e  -> liftIO $ errorM "Metro.Server" $ "On connection leave error " ++ show e
+            Right _ -> pure ()
+          liftIO $ infoM "Metro.Server" (serveName ++ n ++ ": " ++ showNid nid ++ " disconnected")
+          nodeLeave <- readTVarIO onNodeLeave
+          case nodeLeave of
+            Nothing -> pure ()
+            Just f  -> do
+              eNodeLeave <- liftIO $ tryAny $ f nid uEnv
+              case eNodeLeave of
+                Left e  -> liftIO $ errorM "Metro.Server" $ "On node leave callback error " ++ show e
+                Right _ -> pure ()
+        )
 
     return (env0, io)
 
