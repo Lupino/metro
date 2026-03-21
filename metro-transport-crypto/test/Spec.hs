@@ -21,7 +21,7 @@ mkTP
   :: (Transport tp, Cipher cipher, BlockCipher cipher)
   => cipher -> String -> String -> TransportConfig tp -> IO (Crypto cipher tp)
 mkTP cipher method key tpc =
-  newTransport $ makeCrypto cipher method key tpc
+  newTP $ makeCrypto cipher method key tpc
 
 testPipe
   :: (Transport tp, Cipher cipher, BlockCipher cipher)
@@ -38,7 +38,7 @@ testCrypto
   => cipher -> String -> [ByteString] -> String -> Property
 testCrypto cipher method bss key = monadicIO $
   unless (null key) $ do
-    (pipeLC, pipeRC) <- run makePipe
+    (pipeLC, pipeRC) <- run $ makePipe "left" "right"
 
     pipeL <- run $ mkTP cipher method key pipeLC
     pipeR <- run $ mkTP cipher method key pipeRC
