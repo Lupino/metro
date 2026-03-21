@@ -27,10 +27,10 @@ data XOR tp = XOR
 instance Transport tp => Transport (XOR tp) where
   data TransportConfig (XOR tp) = XORConfig FilePath (TransportConfig tp)
   newTP (XORConfig fn config) = do
-    transport <- newTP config
     key <- LB.readFile fn
     when (LB.null key) $
       throwIO $ userError "XOR key file is empty"
+    transport <- newTP config
     sn <- newTVarIO $ LB.cycle key
     rn <- newTVarIO $ LB.cycle key
     sl <- L.new
