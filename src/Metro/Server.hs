@@ -360,7 +360,10 @@ runCheckNodeState serveStateTVar tOnCheckNodeState alive envList = void . async 
             now <- getEpochTime
             when (now > expiredAt) $ do
               stopNodeT
-              IOMap.delete nid ref
+              mCur <- IOMap.lookup nid ref
+              forM_ mCur $ \cur -> do
+                aliveCur <- runNodeT1 cur nodeState
+                unless aliveCur $ IOMap.delete nid ref
 
 serverEnv :: Monad m => ServerT serv u nid k rpkt tp m (ServerEnv serv u nid k rpkt tp)
 serverEnv = ask
