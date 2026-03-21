@@ -9,13 +9,15 @@ module Metro.Example.Types
   , Command (..)
   ) where
 
-import           Data.Binary          (Binary (..), getWord8, putWord8)
+import           Data.Binary          (Binary (..), decodeOrFail, getWord8,
+                                       putWord8)
 import           Data.Binary.Get      (getByteString,
                                        getRemainingLazyByteString, getWord16be)
 import           Data.Binary.Put      (putByteString, putWord16be)
 import           Data.ByteString      (ByteString)
 import qualified Data.ByteString      as B (length)
-import           Data.ByteString.Lazy (toStrict)
+import           Data.ByteString.Lazy (fromStrict, toStrict)
+import qualified Data.ByteString.Lazy as LB
 import           Data.Default.Class   (Default (..))
 import           Data.Word            (Word16)
 import qualified Metro.Class          as Class
@@ -95,10 +97,18 @@ data Packet = Packet
 
 instance Binary Packet where
   get = do
-    packetLength <- get
-    packetId     <- getWord16be
-    packetCmd    <- get
-    return Packet {..}
+    packetLength@(PacketLength l) <- get
+    if l < 2
+      then fail "Invalid packet length"
+      else do
+        packetId <- getWord16be
+        cmdBytes <- getByteString (l - 2)
+        packetCmd <- case decodeOrFail (fromStrict cmdBytes) of
+          Left (_, _, err) -> fail $ "Invalid command payload: " ++ err
+          Right (rest, _, cmd)
+            | not (LB.null rest) -> fail "Invalid command payload: trailing bytes"
+            | otherwise          -> pure cmd
+        return Packet {..}
 
   put Packet {..} = do
     put packetLength
