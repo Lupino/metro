@@ -13,7 +13,7 @@ module Metro.TP.RSA
   ) where
 
 import           Control.Exception        (displayException)
-import           Control.Monad            (unless, (<=<))
+import           Control.Monad            (when, (<=<))
 import           Crypto.Cipher.AES        (AES256)
 import           Crypto.Cipher.Types      (Cipher (..), IV, ctrCombine, makeIV)
 import           Crypto.Error             (CryptoFailable (..))
@@ -36,6 +36,7 @@ import           Data.List                (find, isSuffixOf)
 import           Data.Maybe               (listToMaybe)
 import           Data.PEM                 (PEM (..), pemContent, pemParseBS,
                                            pemWriteBS)
+import           Data.Word                (Word64)
 import           GHC.Generics             (Generic)
 import           Metro.Class              (Transport (..))
 import           Metro.Utils              (recvEnough)
@@ -221,10 +222,10 @@ recvDataPlain buf tp n = do
 ---
 
 -- | Initialize AES-256 Cipher
-initAES :: ByteString -> IV AES256 -> AES256
+initAES :: ByteString -> IV AES256 -> IO AES256
 initAES key _ = case cipherInit key of
-  CryptoFailed e -> error $ "AES Init Failed: " ++ show e
-  CryptoPassed c -> c
+  CryptoFailed e -> throwIO . userError $ "AES Init Failed: " ++ show e
+  CryptoPassed c -> pure c
 
 -- | Encrypts data using AES-256-CTR and sends it with a length header.
 -- Format: [Length (8 bytes)][IV (16 bytes)][Ciphertext]
@@ -233,37 +234,44 @@ sendDataAes key tp bs
   | BS.null bs = return ()
   | otherwise = do
       ivBytes <- getEntropy aesIvSize
-      let iv = case makeIV ivBytes of
-                 Just i  -> i
-                 Nothing -> error "Failed to generate IV"
+      iv <- case makeIV ivBytes of
+              Just i  -> pure i
+              Nothing -> throwIO (userError "Failed to generate IV")
 
-      let ctx = initAES key iv
+      ctx <- initAES key iv
+      let
           cipherText = ctrCombine ctx iv bs
 
           -- Construct packet: IV + CipherText
           payload = ivBytes `BS.append` cipherText
-          -- Length header (Int64 -> 8 bytes)
-          lenBytes = LBS.toStrict $ encode (fromIntegral (BS.length payload) :: Int)
+          -- Length header (Word64 -> 8 bytes)
+          lenBytes = LBS.toStrict $ encode (fromIntegral (BS.length payload) :: Word64)
 
       sendData tp (lenBytes `BS.append` payload)
 
 -- | Receives AES encrypted data. Handles buffering and packet reassembly.
 recvDataAes :: (Transport tp) => TVar ByteString -> ByteString -> tp -> Int -> IO ByteString
-recvDataAes buf key tp n = do
-      -- 1. Read Packet Length (8 bytes for Int64)
+recvDataAes buf key tp _ = do
+      -- 1. Read packet length (8 bytes Word64)
   lenBytes <- recvEnough buf tp 8
-  let pktLen = decode (LBS.fromStrict lenBytes) :: Int
+  pktLen64 <- case decodeOrFail (LBS.fromStrict lenBytes) of
+    Left (_, _, err) -> throwIO $ userError $ "Invalid AES length header: " ++ err
+    Right (_, _, v)  -> pure (v :: Word64)
+  when (pktLen64 < fromIntegral aesIvSize || pktLen64 > fromIntegral (maxBound :: Int)) $
+    throwIO $ userError "Invalid AES packet length"
+  let pktLen = fromIntegral pktLen64 :: Int
 
   -- 2. Read Packet Payload (IV + Ciphertext)
   payload <- recvEnough buf tp pktLen
   let (ivBytes, cipherText) = BS.splitAt aesIvSize payload
 
   -- 3. Decrypt
-  let iv = case makeIV ivBytes of
-             Just i  -> i
-             Nothing -> error "Invalid IV received"
+  iv <- case makeIV ivBytes of
+          Just i  -> pure i
+          Nothing -> throwIO (userError "Invalid IV received")
 
-  return $ ctrCombine (initAES key iv) iv cipherText
+  ctx <- initAES key iv
+  return $ ctrCombine ctx iv cipherText
 
 ---
 --- RSA Data Transmission Helpers (OAEP)
@@ -280,18 +288,18 @@ recvDataOaep buf privKey tp = do
   where
     size = RSA.private_size privKey
 
--- | Encrypt data using OAEP and send it. Handles chunking if data exceeds block size.
+-- | Encrypt data using OAEP and send it.
+-- OAEP transport reads one RSA block at a time, so payload must fit in one block.
 sendDataOaep :: Transport tp => PublicKey -> tp -> ByteString -> IO ()
 sendDataOaep peerPubKey tp bs
   | BS.null bs = pure ()
+  | BS.length bs > maxSize =
+      throwIO $ userError "RSA payload too large for OAEP mode; use AES or Plain mode"
   | otherwise = do
-      let (chunk, remainder) = BS.splitAt maxSize bs
-      result <- encrypt oaepParams peerPubKey chunk
+      result <- encrypt oaepParams peerPubKey bs
       case result of
         Left err         -> throwIO $ userError $ "RSA Encryption Failed: " ++ show err
-        Right cipherText -> do
-          sendData tp cipherText
-          unless (BS.null remainder) $ sendDataOaep peerPubKey tp remainder
+        Right cipherText -> sendData tp cipherText
   where
     maxSize = RSA.public_size peerPubKey - oaepSize
 
