@@ -29,16 +29,16 @@ instance Servable SocketServer where
   type SID SocketServer = SSSID
   type STP SocketServer = T.Socket
   newServer (SSConfig hostPort) =
-    if "udp" `isPrefixOf` hostPort then UDP <$> newServer (udpServer hostPort)
+    if "udp://" `isPrefixOf` hostPort then UDP <$> newServer (udpServer hostPort)
     else TCP <$> newServer (tcpServer hostPort)
   servOnce (TCP s) done = servOnce s $ mapTCPServOnceDone done
   servOnce (UDP s) done = servOnce s $ mapUDPServOnceDone done
   onConnEnter (TCP s) (TCPSID sid) = onConnEnter s sid
   onConnEnter (UDP s) (UDPSID sid) = onConnEnter s sid
-  onConnEnter _ _                  = error "onConnEnter invalid type"
+  onConnEnter _ _                  = return ()
   onConnLeave (TCP s) (TCPSID sid) = onConnLeave s sid
   onConnLeave (UDP s) (UDPSID sid) = onConnLeave s sid
-  onConnLeave _ _                  = error "onConnLeave invalid type"
+  onConnLeave _ _                  = return ()
   servClose (TCP s) = servClose s
   servClose (UDP s) = servClose s
 
