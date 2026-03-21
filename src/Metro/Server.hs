@@ -355,7 +355,7 @@ runCheckNodeState serveStateTVar tOnCheckNodeState alive envList = void . async 
               u <- env
               liftIO $ onCheckNodeStateEvent nid u
           t <- readTVarIO alive
-          when (t < 0) $ do
+          when (t > 0) $ do
             expiredAt <- (t +) <$> getTimer
             now <- getEpochTime
             when (now > expiredAt) $ do
