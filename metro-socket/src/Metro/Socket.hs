@@ -10,14 +10,15 @@ module Metro.Socket
   , getDatagramAddr
   ) where
 
+import           Control.Applicative ((<|>))
 import           Control.Exception (bracketOnError, throwIO)
 import           Control.Monad     (when)
+import           Data.Char         (isDigit)
 import           Data.List         (isPrefixOf)
 import           Data.Maybe        (listToMaybe)
 import           Network.Socket    hiding (bind, connect, listen)
 import qualified Network.Socket    as S (bind, connect, listen)
-import           System.Directory  (doesFileExist, removeFile)
-import           System.Exit       (exitFailure)
+import           System.Directory  (doesPathExist, removeFile)
 import           UnliftIO          (tryIO)
 
 -- Returns the first action from a list which does not throw an exception.
@@ -37,7 +38,7 @@ firstSuccessful = go Nothing
          Left  e -> go (Just e) ps
 
   -- All operations failed, throw error if one exists
-  go Nothing  [] = error "firstSuccessful: empty list"
+  go Nothing  [] = ioError $ userError "Metro.Socket: no address candidates available"
   go (Just e) [] = throwIO e
 
 
@@ -88,10 +89,15 @@ listenOn host serv = do
                            , addrSocketType = Stream
                            }
   addrs <- getAddrInfo (Just hints) host serv
+  when (null addrs) $
+    ioError $ userError "Metro.Socket: listen: Address is invalid"
   -- Choose an IPv6 socket if exists.  This ensures the socket can
   -- handle both IPv4 and IPv6 if v6only is false.
   let addrs' = filter (\x -> addrFamily x == AF_INET6) addrs
-      addr = getOneAddr addrs' addrs
+  addr <- maybe
+    (ioError $ userError "Metro.Socket: listen: Address is invalid")
+    pure
+    (listToMaybe addrs' <|> listToMaybe addrs)
   bracketOnError (openSocket addr) close (doBind addr)
 
   where doBind :: AddrInfo -> Socket -> IO Socket
@@ -102,29 +108,28 @@ listenOn host serv = do
           S.listen sock maxListenQueue
           return sock
 
-        getOneAddr :: [AddrInfo] -> [AddrInfo] -> AddrInfo
-        getOneAddr [] []    = error "Metro.Socket: listen: Address is invalid"
-        getOneAddr (x:_) _  = x
-        getOneAddr [] (y:_) = y
-
 listen :: String -> IO Socket
 listen port =
-  if "tcp" `isPrefixOf` port then
+  if "tcp://" `isPrefixOf` port then
     listenOn (getHost port) (getService port)
   else do
     let sockFile = dropS port
-    exists <- doesFileExist sockFile
+    exists <- doesPathExist sockFile
     when exists $ do
       e <- tryIO $ connectToFile sockFile
       case e of
-        Left _ -> removeFile sockFile
-        Right _ -> do
-          putStrLn "Metro.Socket: bind: resource busy (Address already in use)"
-          exitFailure
+        Left _ -> do
+          rm <- tryIO $ removeFile sockFile
+          case rm of
+            Left _  -> ioError $ userError "Metro.Socket: bind: stale socket path exists and cannot be removed"
+            Right _ -> pure ()
+        Right sock -> do
+          close sock
+          ioError $ userError "Metro.Socket: bind: resource busy (Address already in use)"
     listenOnFile sockFile
 
 connect :: String -> IO Socket
-connect h | "tcp" `isPrefixOf` h = connectTo (getHost h) (getService h)
+connect h | "tcp://" `isPrefixOf` h = connectTo (getHost h) (getService h)
           | otherwise            = connectToFile (dropS h)
 
 getDatagramAddrList :: String -> IO [AddrInfo]
@@ -167,18 +172,46 @@ countColon = length . filter (==':')
 -- ipv4 127.0.0.1
 -- only port :80
 splitHostPort :: String -> (Maybe String, Maybe String)
-splitHostPort hostPort
-  | colon == 0 = (Just hostPort, Nothing)
-  | colon == 1 = (takeFst id hostPort, takeSnd id hostPort)
-  | colon == 5 = (Just hostPort, Nothing)
-  | colon == 6 = (takeSnd reverse hostPort, takeFst reverse hostPort )
-  | otherwise = (Nothing, Nothing)
-  where colon = countColon hostPort
-        takeFst f = toMaybe . f . takeWhile (/=':') . f
-        takeSnd f = toMaybe . f . drop 1 . dropWhile (/=':') . f
+splitHostPort [] = (Nothing, Nothing)
+splitHostPort hostPort =
+  case parseBracketIPv6 hostPort of
+    Just v  -> v
+    Nothing ->
+      case countColon hostPort of
+        0 -> (Just hostPort, Nothing)
+        1 -> (takePart id, takeRest id)
+        _ -> splitIPv6 hostPort
+  where
+    takePart f = toMaybe . f . takeWhile (/=':') . f $ hostPort
+    takeRest f = toMaybe . f . drop 1 . dropWhile (/=':') . f $ hostPort
+
+    parseBracketIPv6 ('[':xs) =
+      let (h, rest) = break (==']') xs
+      in case rest of
+        ']':':' : port -> Just (toMaybe h, toMaybe port)
+        "]"            -> Just (toMaybe h, Nothing)
+        _              -> Nothing
+    parseBracketIPv6 _ = Nothing
+
+    splitIPv6 s =
+      let (rPort, rHost0) = break (==':') (reverse s)
+      in case rHost0 of
+        [] -> (Just s, Nothing)
+        (_:rHost) ->
+          let host = reverse rHost
+              port = reverse rPort
+              -- IPv6 may validly start with "::" (e.g. "::1"), so only
+              -- reject hosts ending with ':' which indicates missing tail.
+              hostLooksComplete = not (null host) && last host /= ':'
+          in if all isDigit port && hostLooksComplete
+               then (Just host, Just port)
+               else (Just s, Nothing)
 
 dropS :: String -> String
-dropS = drop 3 . dropWhile (/= ':')
+dropS s =
+  case dropWhile (/= ':') s of
+    ':':'/':'/':rest -> rest
+    _                -> s
 
 toMaybe :: String -> Maybe String
 toMaybe [] = Nothing
