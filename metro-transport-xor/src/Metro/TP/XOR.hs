@@ -7,12 +7,14 @@ module Metro.TP.XOR
   , xorConfig
   ) where
 
+import           Control.Monad         (when)
 import           Data.Bits            (xor)
 import qualified Data.ByteString      as B
 import qualified Data.ByteString.Lazy as LB
 import           Metro.Class          (Transport (..))
 import qualified Metro.Lock           as L
-import           UnliftIO
+import           UnliftIO             (TVar, atomically, newTVarIO, readTVar,
+                                       throwIO, writeTVar)
 
 data XOR tp = XOR
     { transport :: tp
@@ -27,6 +29,8 @@ instance Transport tp => Transport (XOR tp) where
   newTP (XORConfig fn config) = do
     transport <- newTP config
     key <- LB.readFile fn
+    when (LB.null key) $
+      throwIO $ userError "XOR key file is empty"
     sn <- newTVarIO $ LB.cycle key
     rn <- newTVarIO $ LB.cycle key
     sl <- L.new
