@@ -31,7 +31,7 @@ import           Data.ByteArray           (convert)
 import           Data.ByteString          (ByteString)
 import qualified Data.ByteString          as BS
 import qualified Data.ByteString.Lazy     as LBS
-import           Data.Either              (fromRight, isRight)
+import           Data.Either              (fromRight)
 import           Data.List                (find, isSuffixOf)
 import           Data.Maybe               (listToMaybe)
 import           Data.PEM                 (PEM (..), pemContent, pemParseBS,
@@ -401,7 +401,7 @@ readPublicKeysFromDirectory dir = do
   allFiles <- listDirectory dir
   let pemFiles = filter (".pem" `isSuffixOf`) allFiles
       fullPaths = map (dir </>) pemFiles
-  results <- filter isRight <$> mapM readFileWithKeys fullPaths
+  results <- mapM readFileWithKeys fullPaths
   return $ sequence results
   where
     readFileWithKeys path = do
