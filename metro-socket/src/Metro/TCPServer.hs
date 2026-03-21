@@ -16,7 +16,7 @@ import           Metro.TP.TCPSocket (TCPSocket, tcpSocket_)
 import           Network.Socket     (Socket, SocketOption (KeepAlive), accept,
                                      setSocketOption)
 import qualified Network.Socket     as Socket (close)
-import           UnliftIO           (async, liftIO)
+import           UnliftIO           (async, finally, liftIO, tryAny)
 
 newtype TCPServer = TCPServer Socket
 
@@ -27,13 +27,15 @@ instance Servable TCPServer where
   newServer (TCPConfig hostPort) = liftIO $ TCPServer <$> listen hostPort
   servOnce (TCPServer serv) done = do
     (sock, _) <- liftIO $ accept serv
-    liftIO $ setSocketOption sock KeepAlive 1
+    -- KeepAlive is best effort; some platforms/sockets may reject it.
+    _ <- liftIO $ tryAny $ setSocketOption sock KeepAlive 1
     void $ async $ do
-      done $ Just (sock, tcpSocket_ sock)
-      liftIO $ Socket.close sock
+      finally
+        (done $ Just (sock, tcpSocket_ sock))
+        (void $ liftIO $ tryAny $ Socket.close sock)
   onConnEnter _ _ = return ()
   onConnLeave _ _ = return ()
-  servClose (TCPServer serv) = liftIO $ Socket.close serv
+  servClose (TCPServer serv) = void $ liftIO $ tryAny $ Socket.close serv
 
 tcpServer :: String -> ServerConfig TCPServer
 tcpServer = TCPConfig
