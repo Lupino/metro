@@ -1,3 +1,5 @@
+{-# LANGUAGE CPP #-}
+
 module Metro.Socket
   ( Socket
   , close
@@ -19,9 +21,12 @@ import           Data.List           (isInfixOf, isPrefixOf)
 import           Data.Maybe          (listToMaybe)
 import           Network.Socket      hiding (bind, connect, listen)
 import qualified Network.Socket      as S (bind, connect, listen)
-import           System.Directory    (doesPathExist, removeFile)
-import           System.Posix.Files  (getFileStatus, isSocket)
+import           System.Directory    (doesPathExist)
 import           UnliftIO            (tryIO)
+#if !defined(mingw32_HOST_OS)
+import           System.Directory    (removeFile)
+import           System.Posix.Files  (getFileStatus, isSocket)
+#endif
 
 -- Returns the first action from a list which does not throw an exception.
 -- If all the actions throw exceptions (and the list of actions is not empty),
@@ -61,6 +66,10 @@ connectTo host serv = do
         )
 
 connectToFile :: FilePath -> IO Socket
+#if defined(mingw32_HOST_OS)
+connectToFile _ =
+  ioError $ userError "Metro.Socket: unix-domain sockets are not supported on Windows; use tcp://host:port"
+#else
 connectToFile path =
   bracketOnError
     (socket AF_UNIX Stream 0)
@@ -69,8 +78,13 @@ connectToFile path =
       S.connect sock (SockAddrUnix path)
       return sock
     )
+#endif
 
 listenOnFile :: FilePath -> IO Socket
+#if defined(mingw32_HOST_OS)
+listenOnFile _ =
+  ioError $ userError "Metro.Socket: unix-domain sockets are not supported on Windows; use tcp://host:port"
+#else
 listenOnFile path =
   bracketOnError
     (socket AF_UNIX Stream 0)
@@ -81,6 +95,7 @@ listenOnFile path =
         S.listen sock maxListenQueue
         return sock
     )
+#endif
 
 listenOn :: Maybe HostName -> Maybe ServiceName -> IO Socket
 listenOn host serv = do
@@ -225,6 +240,9 @@ toMaybe [] = Nothing
 toMaybe xs = Just xs
 
 cleanupStaleSocketPath :: FilePath -> IO ()
+#if defined(mingw32_HOST_OS)
+cleanupStaleSocketPath _ = pure ()
+#else
 cleanupStaleSocketPath sockFile = do
   eStat <- tryIO $ getFileStatus sockFile
   case eStat of
@@ -237,6 +255,7 @@ cleanupStaleSocketPath sockFile = do
           pure ()
         else
           ioError $ userError "Metro.Socket: bind: path exists but is not a socket file; refusing to remove"
+#endif
 
 getHost :: String -> Maybe String
 getHost = fst . splitHostPort . dropScheme

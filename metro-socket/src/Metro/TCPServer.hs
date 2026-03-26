@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP                   #-}
 {-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
@@ -18,9 +19,11 @@ import           Metro.TP.TCPSocket (TCPSocket, tcpSocket_)
 import           Network.Socket     (Socket, SocketOption (KeepAlive), accept,
                                      setSocketOption)
 import qualified Network.Socket     as Socket (close)
+import           UnliftIO           (async, finally, liftIO, tryAny, tryIO)
+#if !defined(mingw32_HOST_OS)
 import           System.Directory   (removeFile)
 import           System.Posix.Files (getFileStatus, isSocket)
-import           UnliftIO           (async, finally, liftIO, tryAny, tryIO)
+#endif
 
 data TCPServer = TCPServer Socket (Maybe FilePath)
 
@@ -54,9 +57,13 @@ socketFile hostPort
   | otherwise = Just $ dropScheme hostPort
 
 removeSocketPath :: FilePath -> IO ()
+#if defined(mingw32_HOST_OS)
+removeSocketPath _ = pure ()
+#else
 removeSocketPath sockFile = do
   eStat <- tryIO $ getFileStatus sockFile
   case eStat of
     Left _ -> pure ()
     Right st ->
       when (isSocket st) $ void $ tryAny $ removeFile sockFile
+#endif
