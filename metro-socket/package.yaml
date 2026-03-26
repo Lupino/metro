@@ -34,3 +34,4 @@ library:
   - mtl
   - bytestring
   - map-io
+  - unix

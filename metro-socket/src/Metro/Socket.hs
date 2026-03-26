@@ -5,21 +5,23 @@ module Metro.Socket
   , connect
   , getHost
   , getService
+  , dropScheme
   -- udp
   , bindTo
   , getDatagramAddr
   ) where
 
 import           Control.Applicative ((<|>))
-import           Control.Exception (bracketOnError, throwIO)
-import           Control.Monad     (when)
-import           Data.Char         (isDigit)
-import           Data.List         (isInfixOf, isPrefixOf)
-import           Data.Maybe        (listToMaybe)
-import           Network.Socket    hiding (bind, connect, listen)
-import qualified Network.Socket    as S (bind, connect, listen)
-import           System.Directory  (doesPathExist)
-import           UnliftIO          (tryIO)
+import           Control.Exception   (bracketOnError, throwIO)
+import           Control.Monad       (when)
+import           Data.Char           (isDigit)
+import           Data.List           (isInfixOf, isPrefixOf)
+import           Data.Maybe          (listToMaybe)
+import           Network.Socket      hiding (bind, connect, listen)
+import qualified Network.Socket      as S (bind, connect, listen)
+import           System.Directory    (doesPathExist, removeFile)
+import           System.Posix.Files  (getFileStatus, isSocket)
+import           UnliftIO            (tryIO)
 
 -- Returns the first action from a list which does not throw an exception.
 -- If all the actions throw exceptions (and the list of actions is not empty),
@@ -113,13 +115,12 @@ listen port =
   if "tcp://" `isPrefixOf` port then
     listenOn (getHost port) (getService port)
   else do
-    let sockFile = dropS port
+    let sockFile = dropScheme port
     exists <- doesPathExist sockFile
     when exists $ do
       e <- tryIO $ connectToFile sockFile
       case e of
-        Left _ ->
-          ioError $ userError "Metro.Socket: bind: socket path exists but is not active; remove it manually"
+        Left _ -> cleanupStaleSocketPath sockFile
         Right sock -> do
           close sock
           ioError $ userError "Metro.Socket: bind: resource busy (Address already in use)"
@@ -127,7 +128,7 @@ listen port =
 
 connect :: String -> IO Socket
 connect h | "tcp://" `isPrefixOf` h = connectTo (getHost h) (getService h)
-          | otherwise            = connectToFile (dropS h)
+          | otherwise               = connectToFile (dropScheme h)
 
 getDatagramAddrList :: String -> IO [AddrInfo]
 getDatagramAddrList hostPort = getAddrInfo (Just hints) host port
@@ -213,8 +214,8 @@ splitHostPort hostPort =
                          else (Just s, Nothing)
                else (Just s, Nothing)
 
-dropS :: String -> String
-dropS s =
+dropScheme :: String -> String
+dropScheme s =
   case dropWhile (/= ':') s of
     ':':'/':'/':rest -> rest
     _                -> s
@@ -223,8 +224,22 @@ toMaybe :: String -> Maybe String
 toMaybe [] = Nothing
 toMaybe xs = Just xs
 
+cleanupStaleSocketPath :: FilePath -> IO ()
+cleanupStaleSocketPath sockFile = do
+  eStat <- tryIO $ getFileStatus sockFile
+  case eStat of
+    Left _ -> pure ()
+    Right st ->
+      if isSocket st
+        then do
+          -- Remove stale Unix-domain socket path left by abnormal shutdown.
+          _ <- tryIO $ removeFile sockFile
+          pure ()
+        else
+          ioError $ userError "Metro.Socket: bind: path exists but is not a socket file; refusing to remove"
+
 getHost :: String -> Maybe String
-getHost = fst . splitHostPort . dropS
+getHost = fst . splitHostPort . dropScheme
 
 getService :: String -> Maybe String
-getService = snd . splitHostPort . dropS
+getService = snd . splitHostPort . dropScheme
