@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 18b7f7f2519bafec7eaf50ecc9784d2827d79e76fe11a2a772db24f4142add4d
+-- hash: b083e1efcac1270d2dbcb46c2235e452e34107f767636a479e0e6f48cb5c01bd
 
 name:           metro-transport-crypto
 version:        0.1.0.0
@@ -45,9 +45,9 @@ library
     , directory
     , entropy
     , filepath
-    , memory
     , metro
     , pem
+    , ram
     , text
     , unliftio
   default-language: Haskell2010
