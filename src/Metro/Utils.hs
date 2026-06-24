@@ -11,8 +11,8 @@ import           Control.Monad             (forever, when)
 import           Control.Monad.Cont        (ContT, callCC, runContT)
 import           Control.Monad.Trans.Class (lift)
 import           Data.ByteString           (ByteString)
-import qualified Data.ByteString           as B (concat, drop, empty, length,
-                                                 null, take)
+import qualified Data.ByteString           as B (concat, empty, length, null,
+                                                 splitAt)
 import           Data.Int                  (Int64)
 import           Data.UnixTime             (getUnixTime, toEpochTime)
 import           Foreign.C.Types           (CTime (..))
@@ -40,26 +40,28 @@ setupLog logLevel = do
 
 recvEnough :: (MonadIO m, Transport tp) => TVar ByteString -> tp -> Int -> m ByteString
 recvEnough buffer tp nbytes = do
-  buf <- atomically $ do
-    bf <- readTVar buffer
-    writeTVar buffer $! B.drop nbytes bf
-    return $! B.take nbytes bf
-  if B.length buf == nbytes then return buf
-                            else do
-                              otherBuf <- liftIO $ readBuf (nbytes - B.length buf)
-                              let out = B.concat [ buf, otherBuf ]
-                              atomically . writeTVar buffer $! B.drop nbytes out
-                              return $! B.take nbytes out
+  if nbytes <= 0 then return B.empty
+  else do
+    (buf, need) <- atomically $ do
+      bf <- readTVar buffer
+      let (out, rest) = B.splitAt nbytes bf
+      writeTVar buffer $! rest
+      return $! (out, nbytes - B.length out)
+    if need == 0 then return buf
+                 else do
+                   (chunks, overflow) <- liftIO $ readBuf [] need
+                   atomically . writeTVar buffer $! overflow
+                   return $! B.concat (buf : chunks)
 
-  where readBuf :: Int -> IO ByteString
-        readBuf 0  = return B.empty
-        readBuf nb = do
+  where readBuf :: [ByteString] -> Int -> IO ([ByteString], ByteString)
+        readBuf chunks 0  = return (reverse chunks, B.empty)
+        readBuf chunks nb = do
           buf <- recvData tp $ max 8192 nb -- 8k
           when (B.null buf) $ throwIO TransportClosed
-          if B.length buf >= nb then return buf
-                                else do
-                                  otherBuf <- readBuf (nb - B.length buf)
-                                  return $! B.concat [ buf, otherBuf ]
+          let (out, rest) = B.splitAt nb buf
+              chunks' = out : chunks
+          if B.length buf >= nb then return (reverse chunks', rest)
+                                else readBuf chunks' (nb - B.length buf)
 
 foreverExit :: Applicative m => ((r -> ContT r m ()) -> ContT r m ()) -> m r
 foreverExit io = (`runContT` pure) $ callCC $ \exit -> forever $ io exit

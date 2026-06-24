@@ -85,7 +85,7 @@ recvBinary _ putBack recv = do
 
 recvDecoder :: Monad m => Decoder rpkt -> (Int -> m ByteString) -> m (Decoder rpkt)
 recvDecoder (Partial f) recv = do
-  bs <- recv 1
+  bs <- recv 8192
   if B.null bs
     then return $ pushEndOfInput (Partial f)
     else recvDecoder (pushChunk (Partial f) bs) recv
