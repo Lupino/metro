@@ -9,15 +9,17 @@ module Metro.TP.RSA
   , rsa
   , configClient
   , configServer
+  , configServerUnsafePlain
   , generateKeyPair
   ) where
 
 import           Control.Exception        (bracketOnError, displayException)
-import           Control.Monad            (when, (<=<))
+import           Control.Monad            (unless, when, (<=<))
 import           Crypto.Cipher.AES        (AES256)
 import           Crypto.Cipher.Types      (Cipher (..), IV, ctrCombine, makeIV)
 import           Crypto.Error             (CryptoFailable (..))
 import           Crypto.Hash              (Digest, SHA256 (..), hash)
+import           Crypto.MAC.HMAC          (HMAC, hmac, hmacGetDigest)
 import           Crypto.PubKey.RSA        (PrivateKey, PublicKey, generate)
 import           Crypto.PubKey.RSA.OAEP   (OAEPParams, decryptSafer,
                                            defaultOAEPParams, encrypt)
@@ -27,7 +29,7 @@ import           Data.ASN1.Encoding       (decodeASN1', encodeASN1')
 import           Data.ASN1.Types
 import           Data.Bifunctor           (first)
 import           Data.Binary              (Binary, decodeOrFail, encode)
-import           Data.ByteArray           (convert)
+import           Data.ByteArray           (constEq, convert)
 import           Data.ByteString          (ByteString)
 import qualified Data.ByteString          as BS
 import qualified Data.ByteString.Lazy     as LBS
@@ -61,6 +63,12 @@ aesKeySize = 32
 aesIvSize :: Int
 aesIvSize = 16
 
+aesTagSize :: Int
+aesTagSize = 32
+
+maxRSAPacketSize :: Int
+maxRSAPacketSize = 64 * 1024 * 1024
+
 -- | Transmission Mode
 data RSAMode = Plain | RSA | AES
   deriving (Show, Read, Eq, Generic)
@@ -77,10 +85,9 @@ data RSATP tp = RSATP
   }
 
 instance (Transport tp) => Transport (RSATP tp) where
-  -- Updated: Added RSAMode to the Config
-  data TransportConfig (RSATP tp) = RSAConfig RSAMode PrivateKey FilePath Bool (TransportConfig tp)
+  data TransportConfig (RSATP tp) = RSAConfig RSAMode [RSAMode] PrivateKey FilePath Bool (TransportConfig tp)
 
-  newTP (RSAConfig configMode privateKey publicKeyFileOrDir isClient config) = do
+  newTP (RSAConfig configMode allowedModes privateKey publicKeyFileOrDir isClient config) = do
     readBuffer <- newTVarIO BS.empty
     bracketOnError (newTP config) closeTP $ \baseTp -> do
 
@@ -94,20 +101,20 @@ instance (Transport tp) => Transport (RSATP tp) where
           throwIO $ userError "RSA Transport Error: Handshake failed. Identity unverified."
         Just peerPub -> do
 
-          -- 2. Mode Negotiation: Client determines mode, Server accepts it
           actualMode <- if isClient
             then do
-              -- Client: Send the configured mode to Server (Encrypted)
               let modeBytes = LBS.toStrict $ encode configMode
               sendDataOaep peerPub baseTp modeBytes
               return configMode
             else do
-              -- Server: Receive the mode from Client
-              -- Note: We ignore the 'configMode' passed in RSAConfig for the server
               modeBytes <- recvDataOaep readBuffer privateKey baseTp
               case decodeOrFail (LBS.fromStrict modeBytes) of
                 Left (_, _, err)    -> throwIO $ userError $ "Invalid RSA mode payload: " ++ err
-                Right (_, _, cMode) -> return (cMode :: RSAMode)
+                Right (_, _, cMode) -> do
+                  let clientMode = cMode :: RSAMode
+                  unless (clientMode `elem` allowedModes) $
+                    throwIO $ userError $ "RSA mode not allowed by server policy: " ++ show clientMode
+                  return clientMode
 
           -- 3. Key Exchange: Negotiate AES Session Key ONLY if AES mode is requested
           sKey <- case actualMode of
@@ -160,10 +167,21 @@ clientHandshake buf myPrivKey peerKeyPath tp = do
     Nothing -> do
       throwIO $ userError "RSA Config: No public keys found for client (Server key needed)."
     Just serverPub -> do
-      -- 1. Send our public key fingerprint (encrypted with server's pub key)
-      sendPublicKeyFingerprint myPrivKey serverPub tp
-      -- 2. Perform handshake to verify server response/identity
-      handshake buf myPrivKey peerKeyPath tp
+      nonce <- getEntropy handshakeNonceSize
+      let myFp = publicKeyFingerprint $ RSA.private_pub myPrivKey
+      sendDataOaep serverPub tp $ myFp `BS.append` nonce
+      serverFp <- recvDataOaep buf myPrivKey tp
+      proof <- recvDataOaep buf myPrivKey tp
+      challenge <- recvDataOaep buf myPrivKey tp
+      case findPublicKeyByFingerprint serverFp keys of
+        Nothing -> return Nothing
+        Just verifiedServerPub -> do
+          let expected = handshakeHash ["metro-rsa-server-v1", nonce, serverFp]
+          unless (proof == expected) $
+            throwIO $ userError "RSA Transport Error: server proof verification failed"
+          sendDataOaep verifiedServerPub tp $
+            handshakeHash ["metro-rsa-client-v1", challenge, myFp]
+          return $ Just verifiedServerPub
 
 -- | Server-side handshake: Waits for fingerprint, matches against allowed clients, responds.
 serverHandshake :: (Transport tp)
@@ -173,28 +191,34 @@ serverHandshake :: (Transport tp)
                 -> tp
                 -> IO (Maybe PublicKey)
 serverHandshake buf myPrivKey authorizedKeysPath tp = do
-  -- 1. Receive and verify client fingerprint
-  mClientPub <- handshake buf myPrivKey authorizedKeysPath tp
-  case mClientPub of
+  knownPubKeys <- loadPublicKeys authorizedKeysPath
+  helloBytes <- recvDataOaep buf myPrivKey tp
+  let (incomingFp, nonce) = BS.splitAt fingerprintSize helloBytes
+  unless (BS.length incomingFp == fingerprintSize && BS.length nonce == handshakeNonceSize) $
+    throwIO $ userError "RSA Transport Error: invalid client hello length"
+  case findPublicKeyByFingerprint incomingFp knownPubKeys of
     Nothing -> return Nothing
     Just clientPub -> do
-      -- 2. If verified, send back our fingerprint to confirm
-      sendPublicKeyFingerprint myPrivKey clientPub tp
-      return (Just clientPub)
+      challenge <- getEntropy handshakeNonceSize
+      let myFp = publicKeyFingerprint $ RSA.private_pub myPrivKey
+          proof = handshakeHash ["metro-rsa-server-v1", nonce, myFp]
+      sendDataOaep clientPub tp myFp
+      sendDataOaep clientPub tp proof
+      sendDataOaep clientPub tp challenge
+      clientProof <- recvDataOaep buf myPrivKey tp
+      let expected = handshakeHash ["metro-rsa-client-v1", challenge, incomingFp]
+      if clientProof == expected
+        then return $ Just clientPub
+        else throwIO $ userError "RSA Transport Error: client proof verification failed"
 
--- | Core handshake: Loads keys and waits for a fingerprint match.
-handshake :: Transport tp => TVar ByteString -> PrivateKey -> FilePath -> tp -> IO (Maybe PublicKey)
-handshake buf privKey fileOrDir tp = do
-  knownPubKeys <- loadPublicKeys fileOrDir
-  incomingFp   <- recvDataOaep buf privKey tp
-  return $ findPublicKeyByFingerprint incomingFp knownPubKeys
+handshakeNonceSize :: Int
+handshakeNonceSize = 16
 
--- | Encrypts and sends the fingerprint of the local public key.
-sendPublicKeyFingerprint :: Transport tp => PrivateKey -> PublicKey -> tp -> IO ()
-sendPublicKeyFingerprint myPrivKey peerPubKey tp =
-  sendDataOaep peerPubKey tp fingerprint
-  where
-    fingerprint = publicKeyFingerprint $ RSA.private_pub myPrivKey
+fingerprintSize :: Int
+fingerprintSize = 32
+
+handshakeHash :: [ByteString] -> ByteString
+handshakeHash parts = convert (hash (BS.concat parts) :: Digest SHA256)
 
 ---
 --- Plain Data Helpers (Fixing Buffer Issue)
@@ -230,6 +254,8 @@ initAES key _ = case cipherInit key of
 sendDataAes :: (Transport tp) => ByteString -> tp -> ByteString -> IO ()
 sendDataAes key tp bs
   | BS.null bs = return ()
+  | BS.length bs + aesIvSize + aesTagSize > maxRSAPacketSize =
+      throwIO $ userError "AES packet length exceeds maximum"
   | otherwise = do
       ivBytes <- getEntropy aesIvSize
       iv <- case makeIV ivBytes of
@@ -237,11 +263,9 @@ sendDataAes key tp bs
               Nothing -> throwIO (userError "Failed to generate IV")
 
       ctx <- initAES key iv
-      let
-          cipherText = ctrCombine ctx iv bs
-
-          -- Construct packet: IV + CipherText
-          payload = ivBytes `BS.append` cipherText
+      let cipherText = ctrCombine ctx iv bs
+          tag = hmacSHA256 key (ivBytes `BS.append` cipherText)
+          payload = BS.concat [ivBytes, cipherText, tag]
           -- Length header (Word64 -> 8 bytes)
           lenBytes = LBS.toStrict $ encode (fromIntegral (BS.length payload) :: Word64)
 
@@ -255,13 +279,18 @@ recvDataAes buf key tp _ = do
   pktLen64 <- case decodeOrFail (LBS.fromStrict lenBytes) of
     Left (_, _, err) -> throwIO $ userError $ "Invalid AES length header: " ++ err
     Right (_, _, v)  -> pure (v :: Word64)
-  when (pktLen64 < fromIntegral aesIvSize || pktLen64 > fromIntegral (maxBound :: Int)) $
+  when (pktLen64 < fromIntegral (aesIvSize + aesTagSize) || pktLen64 > fromIntegral maxRSAPacketSize) $
     throwIO $ userError "Invalid AES packet length"
   let pktLen = fromIntegral pktLen64 :: Int
 
   -- 2. Read Packet Payload (IV + Ciphertext)
   payload <- recvEnough buf tp pktLen
-  let (ivBytes, cipherText) = BS.splitAt aesIvSize payload
+  let (ivBytes, cipherTextAndTag) = BS.splitAt aesIvSize payload
+      cipherTextSize = BS.length cipherTextAndTag - aesTagSize
+      (cipherText, tag) = BS.splitAt cipherTextSize cipherTextAndTag
+      expectedTag = hmacSHA256 key (ivBytes `BS.append` cipherText)
+  unless (tag `constEq` expectedTag) $
+    throwIO $ userError "Invalid AES packet authentication tag"
 
   -- 3. Decrypt
   iv <- case makeIV ivBytes of
@@ -270,6 +299,9 @@ recvDataAes buf key tp _ = do
 
   ctx <- initAES key iv
   return $ ctrCombine ctx iv cipherText
+
+hmacSHA256 :: ByteString -> ByteString -> ByteString
+hmacSHA256 key msg = convert (hmacGetDigest (hmac key msg :: HMAC SHA256))
 
 ---
 --- RSA Data Transmission Helpers (OAEP)
@@ -315,7 +347,7 @@ rsa mode privPath pubPath isClient = do
   ePrivKey <- readPrivateKeyPEM privPath
   case ePrivKey of
     Left err       -> throwIO $ userError $ "Read RSA private key failed: " ++ show err
-    Right privKey -> return $ RSAConfig mode privKey pubPath isClient
+    Right privKey -> return $ RSAConfig mode (defaultAllowedModes isClient) privKey pubPath isClient
 
 -- | Client Configuration: Explicitly sets the RSAMode
 configClient :: RSAMode  -- ^ Mode to negotiate with server (Plain, RSA, AES)
@@ -329,8 +361,19 @@ configServer :: FilePath -- ^ Server Private Key
              -> FilePath -- ^ Directory containing authorized Client Public Keys
              -> IO (TransportConfig tp -> TransportConfig (RSATP tp))
 configServer privPath pubDir = rsa Plain privPath pubDir False
--- Note: 'Plain' here is a placeholder. The server will ignore this
--- and use the mode sent by the client during the handshake.
+
+configServerUnsafePlain :: FilePath
+                        -> FilePath
+                        -> IO (TransportConfig tp -> TransportConfig (RSATP tp))
+configServerUnsafePlain privPath pubDir = do
+  ePrivKey <- readPrivateKeyPEM privPath
+  case ePrivKey of
+    Left err      -> throwIO $ userError $ "Read RSA private key failed: " ++ show err
+    Right privKey -> return $ RSAConfig Plain [Plain, RSA, AES] privKey pubDir False
+
+defaultAllowedModes :: Bool -> [RSAMode]
+defaultAllowedModes True  = [Plain, RSA, AES]
+defaultAllowedModes False = [RSA, AES]
 
 ---
 --- PEM & Key Management

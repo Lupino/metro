@@ -15,6 +15,7 @@ module Metro.TP.Crypto
   , methodCtr
 
   , makeCrypto
+  , makeCryptoUnsafe
   ) where
 
 import           Control.Monad        (when)
@@ -186,9 +187,21 @@ getCryptoMethod _     = Nothing
 makeCrypto
   :: forall cipher tp. (BlockCipher cipher, Cipher cipher)
   => cipher -> String -> String -> TransportConfig tp -> TransportConfig (Crypto cipher tp)
-makeCrypto cipher method key c =
+makeCrypto = makeCryptoConfig False
+
+makeCryptoUnsafe
+  :: forall cipher tp. (BlockCipher cipher, Cipher cipher)
+  => cipher -> String -> String -> TransportConfig tp -> TransportConfig (Crypto cipher tp)
+makeCryptoUnsafe = makeCryptoConfig True
+
+makeCryptoConfig
+  :: forall cipher tp. (BlockCipher cipher, Cipher cipher)
+  => Bool -> cipher -> String -> String -> TransportConfig tp -> TransportConfig (Crypto cipher tp)
+makeCryptoConfig allowUnsafe cipher method key c =
   if null key
     then InvalidCryptoConfig "crypto key is empty"
+    else if not allowUnsafe && method `elem` ["ECB", "ecb"]
+      then InvalidCryptoConfig "crypto method requires makeCryptoUnsafe: ECB"
     else case getCryptoMethod method of
       Nothing -> InvalidCryptoConfig $ "crypto method not support: " ++ method
       Just m  ->

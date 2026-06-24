@@ -56,3 +56,6 @@ tests:
     - quickcheck-instances
     - crypton
     - bytestring
+    - directory
+    - filepath
+    - unliftio

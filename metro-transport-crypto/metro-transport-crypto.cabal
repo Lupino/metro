@@ -1,10 +1,10 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.38.1.
+-- This file has been generated from package.yaml by hpack version 0.39.1.
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: b083e1efcac1270d2dbcb46c2235e452e34107f767636a479e0e6f48cb5c01bd
+-- hash: abd63d23b57dba3dc1629d0f1d27a54926a07eeb05c88451dc56a5f8d6ac25e2
 
 name:           metro-transport-crypto
 version:        0.1.0.0
@@ -65,7 +65,10 @@ test-suite metro-transport-crypto-test
     , base >=4.7 && <5
     , bytestring
     , crypton
+    , directory
+    , filepath
     , metro
     , metro-transport-crypto
     , quickcheck-instances
+    , unliftio
   default-language: Haskell2010
