@@ -18,7 +18,7 @@ module Metro.TP.Crypto
   ) where
 
 import           Control.Monad        (when)
-import           Crypto.Cipher.Types  (BlockCipher (..), Cipher (..), IV (..),
+import           Crypto.Cipher.Types  (BlockCipher (..), Cipher (..), IV,
                                        KeySizeSpecifier (..), ivAdd, nullIV)
 import           Crypto.Error         (CryptoFailable (..))
 import           Data.Binary          (Binary (..), decodeOrFail, encode)
@@ -172,16 +172,16 @@ methodCfb = CryptoMethod cfbEncrypt cfbDecrypt  True
 methodCtr :: BlockCipher cipher => CryptoMethod cipher
 methodCtr = CryptoMethod ctrCombine ctrCombine True
 
-getCryptoMethod :: BlockCipher cipher => cipher -> String -> Maybe (CryptoMethod cipher)
-getCryptoMethod _ "CBC" = Just methodCbc
-getCryptoMethod _ "cbc" = Just methodCbc
-getCryptoMethod _ "CFB" = Just methodCfb
-getCryptoMethod _ "cfb" = Just methodCfb
-getCryptoMethod _ "ECB" = Just methodEcb
-getCryptoMethod _ "ecb" = Just methodEcb
-getCryptoMethod _ "CTR" = Just methodCtr
-getCryptoMethod _ "ctr" = Just methodCtr
-getCryptoMethod _ _     = Nothing
+getCryptoMethod :: BlockCipher cipher => String -> Maybe (CryptoMethod cipher)
+getCryptoMethod "CBC" = Just methodCbc
+getCryptoMethod "cbc" = Just methodCbc
+getCryptoMethod "CFB" = Just methodCfb
+getCryptoMethod "cfb" = Just methodCfb
+getCryptoMethod "ECB" = Just methodEcb
+getCryptoMethod "ecb" = Just methodEcb
+getCryptoMethod "CTR" = Just methodCtr
+getCryptoMethod "ctr" = Just methodCtr
+getCryptoMethod _     = Nothing
 
 makeCrypto
   :: forall cipher tp. (BlockCipher cipher, Cipher cipher)
@@ -189,7 +189,7 @@ makeCrypto
 makeCrypto cipher method key c =
   if null key
     then InvalidCryptoConfig "crypto key is empty"
-    else case getCryptoMethod cipher method of
+    else case getCryptoMethod method of
       Nothing -> InvalidCryptoConfig $ "crypto method not support: " ++ method
       Just m  ->
         case cipherInit key0 of

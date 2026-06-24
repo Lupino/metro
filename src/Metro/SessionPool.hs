@@ -18,7 +18,6 @@ import           UnliftIO
 
 data SessionState rpkt = SessionState
   { statePacket :: Maybe rpkt
-  , stateIsBusy :: Bool
   , stateAlive  :: Bool
   }
 
@@ -104,7 +103,6 @@ startPoolerIO packets states state work =
               [] -> do
                 modifyTVar' state $ \s -> s
                   { statePacket = Nothing
-                  , stateIsBusy = False
                   }
                 modifyTVar' states (state:)
               (x:xs) -> do
@@ -115,7 +113,6 @@ startPoolerIO packets states state work =
             else
               modifyTVar' state $ \s -> s
                 { statePacket = Nothing
-                , stateIsBusy = False
                 }
 
         st <- stateAlive <$> readTVarIO state
@@ -130,7 +127,6 @@ spawn SessionPool {..} rpkt = atomically $ do
     case mState of
       Just state -> modifyTVar' state $ \s -> s
         { statePacket = Just rpkt
-        , stateIsBusy = True
         }
 
       Nothing -> do
@@ -141,7 +137,6 @@ spawn SessionPool {..} rpkt = atomically $ do
         if size < maxSize then do
           state <- newTVar SessionState
             { statePacket = Just rpkt
-            , stateIsBusy = True
             , stateAlive  = True
             }
           modifyTVar' creatingPoolers (+1)

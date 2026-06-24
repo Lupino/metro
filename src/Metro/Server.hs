@@ -25,6 +25,7 @@ module Metro.Server
   , setSessionMode
   , setDefaultSessionTimeout
   , setKeepalive
+  , setMaxSessionPoolSize
 
   , setOnExcClose
   , setOnNodeLeave
