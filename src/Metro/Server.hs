@@ -50,7 +50,7 @@ import           Metro.Class                (GetPacketId, RecvPacket,
                                              Servable (..), Transport,
                                              TransportConfig, closeTP)
 import           Metro.Conn                 hiding (close)
-import           Metro.Node                 (NodeEnv1, NodeMode (..), PoolSize,
+import           Metro.Node                 (NodeEnv1 (..), NodeMode (..), PoolSize,
                                              SessionMode (..), env, getNodeId,
                                              getTimer, initEnv1_, newPoolSize,
                                              nodeState, runCheckSessionState,
@@ -267,27 +267,12 @@ handleConn n servID connEnv nid uEnv preprocess sess = do
           lift . runNodeT1 env0 $ startNodeT_ preprocess sess
         )
         (do
-          -- Ensure this connection's node is marked stopped even if startup
-          -- failed early (e.g. onConnEnter throws), then conditionally prune
-          -- map entry without deleting a newer replacement connection.
-          runNodeT1 env0 stopNodeT
-          mCur <- IOMap.lookup nid nodeEnvList
-          forM_ mCur $ \cur -> do
-            alive <- runNodeT1 cur nodeState
-            unless alive $ IOMap.delete nid nodeEnvList
           eLeave <- tryAny $ onConnLeave serveServ servID
           case eLeave of
             Left e  -> liftIO $ errorM "Metro.Server" $ "On connection leave error " ++ show e
             Right _ -> pure ()
           liftIO $ infoM "Metro.Server" (serveName ++ n ++ ": " ++ showNid nid ++ " disconnected")
-          nodeLeave <- readTVarIO onNodeLeave
-          case nodeLeave of
-            Nothing -> pure ()
-            Just f  -> do
-              eNodeLeave <- liftIO $ tryAny $ f nid uEnv
-              case eNodeLeave of
-                Left e  -> liftIO $ errorM "Metro.Server" $ "On node leave callback error " ++ show e
-                Right _ -> pure ()
+          releaseNode (ServerEnv {..}) nid uEnv env0
         )
 
     return (env0, io)
@@ -313,7 +298,7 @@ startServer_
   -> SessionT u nid k rpkt tp m ()
   -> m ()
 startServer_ sEnv preprocess sess = do
-  runCheckNodeState (serveState sEnv) (onCheckNodeState sEnv) (keepalive sEnv) (nodeEnvList sEnv)
+  runCheckNodeState sEnv
   finally
     (runServerT sEnv $ serveForever preprocess sess)
     (do
@@ -327,44 +312,59 @@ stopServerT = do
   atomically $ writeTVar serveState False
   liftIO $ servClose serveServ
 
+releaseNode
+  :: (MonadUnliftIO m, Eq nid, Ord nid, Transport tp)
+  => ServerEnv serv u nid k rpkt tp
+  -> nid -> u -> NodeEnv1 u nid k rpkt tp -> m ()
+releaseNode ServerEnv {..} nid uEnv env1 = do
+  runNodeT1 env1 stopNodeT
+  mCur <- IOMap.lookup nid nodeEnvList
+  forM_ mCur $ \cur -> do
+    alive <- runNodeT1 cur nodeState
+    unless alive $ IOMap.delete nid nodeEnvList
+  shouldNotify <- atomically $ do
+    notified <- readTVar (nodeLeaveHandled env1)
+    unless notified $ writeTVar (nodeLeaveHandled env1) True
+    pure $ not notified
+  when shouldNotify $ do
+    nodeLeave <- readTVarIO onNodeLeave
+    forM_ nodeLeave $ \f -> do
+      eNodeLeave <- liftIO $ tryAny $ f nid uEnv
+      case eNodeLeave of
+        Left e  -> liftIO $ errorM "Metro.Server" $ "On node leave callback error " ++ show e
+        Right _ -> pure ()
+
 runCheckNodeState
   :: (MonadUnliftIO m, Eq nid, Ord nid, Transport tp, Eq k, Ord k)
-  => TVar Bool
-  -> TVar (Maybe (nid -> u -> IO ()))
-  -> TVar Int64 -> IOMap nid (NodeEnv1 u nid k rpkt tp) -> m ()
-runCheckNodeState serveStateTVar tOnCheckNodeState alive envList = void . async . foreverExit $ \exit -> do
+  => ServerEnv serv u nid k rpkt tp -> m ()
+runCheckNodeState sEnv@ServerEnv {..} = void . async . foreverExit $ \exit -> do
   threadDelay 10000000 -- 10 seconds
-  serving <- readTVarIO serveStateTVar
+  serving <- readTVarIO serveState
   unless serving $ exit ()
-  mOnCheckNodeState <- readTVarIO tOnCheckNodeState
-  r <- lift $ tryAny $ mapM_ (checkNodeState mOnCheckNodeState envList) =<< IOMap.elems envList
+  mOnCheckNodeState <- readTVarIO onCheckNodeState
+  r <- lift $ tryAny $ mapM_ (checkNodeState mOnCheckNodeState) =<< IOMap.elems nodeEnvList
   case r of
     Left e  -> liftIO $ errorM "Metro.Server" $ "Check node state error " ++ show e
     Right _ -> pure ()
 
-  where checkNodeState
-          :: (MonadUnliftIO m, Eq nid, Ord nid, Transport tp, Eq k, Ord k)
-          => Maybe (nid -> u -> IO ())
-          -> IOMap nid (NodeEnv1 u nid k rpkt tp)
-          -> NodeEnv1 u nid k rpkt tp -> m ()
-        checkNodeState mOnCheckNodeState ref env1 = runNodeT1 env1 $ do
-          nid <- getNodeId
-          runCheckSessionState
-          case mOnCheckNodeState of
-            Nothing -> pure ()
-            Just onCheckNodeStateEvent -> do
-              u <- env
-              liftIO $ onCheckNodeStateEvent nid u
-          t <- readTVarIO alive
-          when (t > 0) $ do
-            expiredAt <- (t +) <$> getTimer
-            now <- getEpochTime
-            when (now > expiredAt) $ do
-              stopNodeT
-              mCur <- IOMap.lookup nid ref
-              forM_ mCur $ \cur -> do
-                aliveCur <- runNodeT1 cur nodeState
-                unless aliveCur $ IOMap.delete nid ref
+  where checkNodeState mOnCheckNodeState env1 = do
+          (nid, uEnv, expired) <- runNodeT1 env1 $ do
+            nid <- getNodeId
+            runCheckSessionState
+            uEnv <- env
+            case mOnCheckNodeState of
+              Nothing -> pure ()
+              Just onCheckNodeStateEvent ->
+                liftIO $ onCheckNodeStateEvent nid uEnv
+            t <- readTVarIO keepalive
+            expired <- if t > 0
+              then do
+                expiredAt <- (t +) <$> getTimer
+                now <- getEpochTime
+                pure $ now > expiredAt
+              else pure False
+            pure (nid, uEnv, expired)
+          when expired $ releaseNode sEnv nid uEnv env1
 
 serverEnv :: Monad m => ServerT serv u nid k rpkt tp m (ServerEnv serv u nid k rpkt tp)
 serverEnv = ask

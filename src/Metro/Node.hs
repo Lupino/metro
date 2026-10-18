@@ -109,6 +109,7 @@ data NodeEnv u nid k rpkt = NodeEnv
 data NodeEnv1 u nid k rpkt tp = NodeEnv1
     { nodeEnv :: NodeEnv u nid k rpkt
     , connEnv :: ConnEnv tp
+    , nodeLeaveHandled :: TVar Bool
     }
 
 newtype NodeT u nid k rpkt tp m a = NodeT { unNodeT :: ReaderT (NodeEnv u nid k rpkt) (ConnT tp m) a }
@@ -180,6 +181,7 @@ initEnv1_
   -> ConnEnv tp -> u -> nid -> Bool -> IO k -> PoolSize -> m (NodeEnv1 u nid k rpkt tp)
 initEnv1_ mapEnv connEnv uEnv nid excColse gen poolSize = do
   nodeEnv <- mapEnv <$> initEnv_ uEnv nid excColse gen poolSize
+  nodeLeaveHandled <- newTVarIO False
   return NodeEnv1 {..}
 
 
@@ -192,11 +194,12 @@ initEnv1 mapEnv connEnv uEnv nid excColse gen = do
   initEnv1_ mapEnv connEnv uEnv nid excColse gen poolSize
 
 getEnv1
-  :: (Monad m, Transport tp)
+  :: (MonadIO m, Transport tp)
   => NodeT u nid k rpkt tp m (NodeEnv1 u nid k rpkt tp)
 getEnv1 = do
   connEnv <- fromConn ask
   nodeEnv <- ask
+  nodeLeaveHandled <- liftIO $ newTVarIO False
   return NodeEnv1 {..}
 
 runSessionT_ :: Monad m => SessionEnv u nid k rpkt -> SessionT u nid k rpkt tp m a -> NodeT u nid k rpkt tp m a
