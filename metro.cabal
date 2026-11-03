@@ -1,10 +1,10 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.34.4.
+-- This file has been generated from package.yaml by hpack version 0.38.3.
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 46e8d8798ad6021409e8c16eba9c223da312c6786c52a57365357a4b55ddbac5
+-- hash: ad4009c5b1ae2c41326982c82de144e6b9cc01d4e8b2f348ef540677b5f8024f
 
 name:           metro
 version:        0.1.0.5
@@ -53,5 +53,19 @@ library
     , mtl
     , transformers
     , unix-time
+    , unliftio
+  default-language: Haskell2010
+
+test-suite node-lifecycle
+  type: exitcode-stdio-1.0
+  main-is: NodeLifecycle.hs
+  other-modules:
+      Paths_metro
+  hs-source-dirs:
+      test
+  build-depends:
+      base >=4.7 && <5
+    , bytestring
+    , metro
     , unliftio
   default-language: Haskell2010

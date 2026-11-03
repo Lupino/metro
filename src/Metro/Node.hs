@@ -66,14 +66,14 @@ import           Control.Monad.Trans.Reader (ReaderT (..), runReaderT)
 import           Data.Int                   (Int64)
 import           Data.IOMap                 (IOMap)
 import qualified Data.IOMap                 as Map (delete, elems, empty,
-                                                    insert, lookup, size)
+                                                    insert, lookup, size, update)
 import           Data.Maybe                 (fromMaybe, isJust)
 import           Metro.Class                (GetPacketId, RecvPacket,
                                              SendPacket, SetPacketId, Transport,
                                              TransportError (..), getPacketId)
 import           Metro.Conn                 (ConnEnv, ConnT, FromConn (..),
                                              close, receive, runConnT)
-import           Metro.Session              (SessionEnv (sessionId), SessionT,
+import           Metro.Session              (SessionEnv (sessionData, sessionId), SessionT,
                                              feed, isTimeout, runSessionT)
 import qualified Metro.Session              as S (newSessionEnv, receive, send)
 import           Metro.SessionPool          hiding (close)
@@ -214,9 +214,23 @@ withSessionT_
   :: (MonadUnliftIO m, Eq k, Ord k)
   => NodeT u nid k rpkt tp m k -> Maybe Int64 -> SessionT u nid k rpkt tp m a -> NodeT u nid k rpkt tp m a
 withSessionT_ genSid sTout sessionT =
-  bracket genSid removeSession $ \sid -> do
-    aEnv <- newSessionEnv sTout sid
+  bracket (genSid >>= newSessionEnv sTout) removeOwnedSession $ \aEnv ->
     runSessionT_ aEnv sessionT
+
+-- A message ID can be reused before the old handler finishes.  Cleanup must
+-- only remove the session installed by this owner, not its replacement.
+removeOwnedSession
+  :: (MonadIO m, Eq k, Ord k)
+  => SessionEnv u nid k rpkt -> NodeT u nid k rpkt tp m ()
+removeOwnedSession owned = do
+  NodeEnv {..} <- ask
+  let sameSession current = sessionData current == sessionData owned
+  case nodeMode of
+    Single -> atomically $ do
+      current <- readTVar nodeSession
+      when (maybe False sameSession current) $ writeTVar nodeSession Nothing
+    Multi -> Map.update (\current ->
+      if sameSession current then Nothing else Just current) (sessionId owned) sessionList
 
 newSessionEnv :: (MonadIO m, Eq k, Ord k) => Maybe Int64 -> k -> NodeT u nid k rpkt tp m (SessionEnv u nid k rpkt)
 newSessionEnv sTout sid = do
@@ -279,7 +293,15 @@ mainLoop preprocess = do
   rpkt <- fromConn (receive uEnv)
   setTimer =<< getEpochTime
   r <- lift $ preprocess rpkt
-  when r $ spawn sessionPool rpkt
+  when r $ do
+    -- Replies to existing sessions must bypass the request pool: a handler
+    -- can itself be waiting for a reply while every pool slot is occupied.
+    current <- case nodeMode of
+      Single -> readTVarIO nodeSession
+      Multi -> Map.lookup (getPacketId rpkt) sessionList
+    case current of
+      Just aEnv -> runSessionT_ aEnv $ feed $ Just rpkt
+      Nothing -> spawn sessionPool rpkt
 
 
 tryDoFeed
@@ -321,8 +343,9 @@ doFeed rpkt sessionHandler = do
         case nodeMode of
           Single -> atomically $ writeTVar nodeSession $ Just sEnv
           Multi  -> Map.insert sid sEnv sessionList
-      bracket (return sid) removeSession $ \_ ->
-        runSessionT_ sEnv sessionHandler
+      let cleanup = when (sessionMode == MultiAction) . removeOwnedSession
+      bracket (return sEnv) cleanup $ \owned ->
+        runSessionT_ owned sessionHandler
 
 startNodeT
   :: (MonadUnliftIO m, Transport tp, RecvPacket u rpkt, GetPacketId k rpkt, Eq k, Ord k)

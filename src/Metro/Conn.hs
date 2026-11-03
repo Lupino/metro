@@ -21,6 +21,7 @@ module Metro.Conn
   , getConnEnvName
   ) where
 
+import           Control.Monad (when, unless)
 import           Control.Monad.Reader.Class (MonadReader (ask), asks)
 import           Control.Monad.Trans.Class  (MonadTrans, lift)
 import           Control.Monad.Trans.Reader (ReaderT (..), runReaderT)
@@ -91,13 +92,19 @@ receive_ = receive ()
 send :: (MonadUnliftIO m, Transport tp, SendPacket pkt) => pkt -> ConnT tp m ()
 send pkt = do
   ConnEnv{..} <- ask
-  L.with writeLock $ lift $ sendPacket pkt (liftIO . sendData transport)
+  L.with writeLock $ do
+    alive <- readTVarIO status
+    unless alive $ throwIO TransportClosed
+    lift $ sendPacket pkt (liftIO . sendData transport)
 
 close :: (MonadIO m, Transport tp) => ConnT tp m ()
 close = do
   ConnEnv{..} <- ask
-  atomically $ writeTVar status False
-  liftIO $ closeTP transport
+  wasAlive <- atomically $ do
+    alive <- readTVar status
+    writeTVar status False
+    pure alive
+  when wasAlive $ liftIO $ closeTP transport
 
 statusTVar :: Monad m => ConnT tp m (TVar Bool)
 statusTVar = status <$> ask

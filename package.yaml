@@ -33,3 +33,12 @@ library:
   - unix-time
   - hslogger
   - map-io
+
+tests:
+  node-lifecycle:
+    main: NodeLifecycle.hs
+    source-dirs: test
+    dependencies:
+    - metro
+    - bytestring
+    - unliftio
