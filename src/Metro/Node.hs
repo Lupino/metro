@@ -67,6 +67,7 @@ import           Data.Int                   (Int64)
 import           Data.IOMap                 (IOMap)
 import qualified Data.IOMap                 as Map (delete, elems, empty,
                                                     insert, lookup, size, update)
+import qualified Data.IOMap.STM             as MapSTM
 import           Data.Maybe                 (fromMaybe, isJust)
 import           Metro.Class                (GetPacketId, RecvPacket,
                                              SendPacket, SetPacketId, Transport,
@@ -214,7 +215,7 @@ withSessionT_
   :: (MonadUnliftIO m, Eq k, Ord k)
   => NodeT u nid k rpkt tp m k -> Maybe Int64 -> SessionT u nid k rpkt tp m a -> NodeT u nid k rpkt tp m a
 withSessionT_ genSid sTout sessionT =
-  bracket (genSid >>= newSessionEnv sTout) removeOwnedSession $ \aEnv ->
+  bracket (genSid >>= newSessionEnv_ True sTout) removeOwnedSession $ \aEnv ->
     runSessionT_ aEnv sessionT
 
 -- A message ID can be reused before the old handler finishes.  Cleanup must
@@ -233,7 +234,12 @@ removeOwnedSession owned = do
       if sameSession current then Nothing else Just current) (sessionId owned) sessionList
 
 newSessionEnv :: (MonadIO m, Eq k, Ord k) => Maybe Int64 -> k -> NodeT u nid k rpkt tp m (SessionEnv u nid k rpkt)
-newSessionEnv sTout sid = do
+newSessionEnv = newSessionEnv_ False
+
+-- Explicit request/ACK sessions must retain exclusive ownership until their
+-- bracket exits. A second same-ID assignment must not steal the first ACK.
+newSessionEnv_ :: (MonadIO m, Eq k, Ord k) => Bool -> Maybe Int64 -> k -> NodeT u nid k rpkt tp m (SessionEnv u nid k rpkt)
+newSessionEnv_ exclusive sTout sid = do
   NodeEnv{..} <- ask
   dTout <- readTVarIO sessTimeout
   sEnv <- S.newSessionEnv uEnv nodeId sid (fromMaybe dTout sTout) []
@@ -247,7 +253,17 @@ newSessionEnv sTout sid = do
             state <- readTVar nodeStatus
             if state then retrySTM else pure False
       unless inserted $ throwIO TransportClosed
-    Multi -> Map.insert sid sEnv sessionList
+    Multi -> if not exclusive then Map.insert sid sEnv sessionList
+             else do
+               inserted <- atomically $ do
+                 alive <- readTVar nodeStatus
+                 if not alive then pure False
+                 else do
+                   current <- MapSTM.lookup sid sessionList
+                   case current of
+                     Just _ -> retrySTM
+                     Nothing -> MapSTM.insert sid sEnv sessionList >> pure True
+               unless inserted $ throwIO TransportClosed
   return sEnv
 
 nextSessionId :: MonadIO m => NodeT u nid k rpkt tp m k

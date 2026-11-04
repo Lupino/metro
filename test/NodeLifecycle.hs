@@ -96,6 +96,60 @@ testOwnership = withNode $ \node _ -> do
   count <- N.getSessionSize1 node
   assert "An old session removed a newer session with the same ID" (count == 1)
 
+testExclusiveSessionIds :: IO ()
+testExclusiveSessionIds = withNode $ \node write -> do
+  firstReady <- newEmptyMVar
+  secondStarted <- newEmptyMVar
+  secondReady <- newEmptyMVar
+  let handler = void S.receive
+  withAsync (N.runNodeT1 node $ N.startNodeT handler) $ \_ -> do
+    withAsync (N.runNodeT1 node $ N.withSessionT_ (pure 7) Nothing $ do
+      liftIO $ putMVar firstReady ()
+      S.receive) $ \first -> do
+      takeMVar firstReady
+      withAsync (do
+        putMVar secondStarted ()
+        N.runNodeT1 node $ N.withSessionT_ (pure 7) Nothing $ do
+          liftIO $ putMVar secondReady ()
+          S.receive) $ \second -> do
+        takeMVar secondStarted
+        premature <- timeout 50000 $ readMVar secondReady
+        assert "A second ACK waiter replaced a live same-ID session" $
+          premature == Nothing
+        write (Packet 7 2)
+        firstResult <- timeout 500000 $ wait first
+        assert "The first ACK was stolen by the second assignment" $
+          firstResult == Just (Just (Packet 7 2))
+        ready <- timeout 500000 $ takeMVar secondReady
+        assert "The next assignment did not acquire the released ID" $
+          ready == Just ()
+        write (Packet 7 3)
+        secondResult <- timeout 500000 $ wait second
+        assert "The second assignment lost its own ACK" $
+          secondResult == Just (Just (Packet 7 3))
+
+testExclusiveWaitDisconnect :: IO ()
+testExclusiveWaitDisconnect = withNode $ \node _ -> do
+  firstReady <- newEmptyMVar
+  secondStarted <- newEmptyMVar
+  withAsync (N.runNodeT1 node $ N.withSessionT_ (pure 7) Nothing $ do
+    liftIO $ putMVar firstReady ()
+    S.receive) $ \_ -> do
+    takeMVar firstReady
+    withAsync (do
+      putMVar secondStarted ()
+      tryAny $ N.runNodeT1 node $ N.withSessionT_ (pure 7) Nothing $ pure ()) $ \second -> do
+      takeMVar secondStarted
+      premature <- timeout 50000 $ wait second
+      assert "Same-ID acquisition did not wait for the current owner" $
+        case premature of Nothing -> True; _ -> False
+      N.runNodeT1 node N.stopNodeT
+      result <- timeout 500000 $ wait second
+      assert "A blocked session acquisition did not terminate on disconnect" $
+        case result of
+          Just (Left err) -> fromException err == Just TransportClosed
+          _ -> False
+
 testNormalCleanup :: IO ()
 testNormalCleanup = withNode $ \node _ -> do
   N.runNodeT1 node $ N.withSessionT_ (pure 7) Nothing $ pure ()
@@ -122,6 +176,8 @@ main = do
     [("SingleAction cleanup", testCleanup),
      ("ACK under request load", testAckUnderLoad),
      ("Session ownership", testOwnership),
+     ("Exclusive session IDs", testExclusiveSessionIds),
+     ("Exclusive wait disconnect", testExclusiveWaitDisconnect),
      ("Normal session cleanup", testNormalCleanup),
      ("Closed connection writes", testClosedSend)]
   assert "Node lifecycle regressions failed" (and results)
