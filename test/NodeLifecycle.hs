@@ -156,6 +156,36 @@ testNormalCleanup = withNode $ \node _ -> do
   count <- N.getSessionSize1 node
   assert "A completed session must release its own entry" (count == 0)
 
+testNodeCloseDrainsThreads :: IO ()
+testNodeCloseDrainsThreads = withNode $ \node write -> do
+  handlerEntered <- newEmptyMVar
+  handlerExited <- newEmptyMVar
+  never <- newEmptyMVar
+  ackReady <- newEmptyMVar
+  let handler = do
+        void S.receive
+        liftIO $ (putMVar handlerEntered () >> takeMVar never)
+          `finally` putMVar handlerExited ()
+  withAsync (N.runNodeT1 node $ N.startNodeT handler) $ \mainLoop -> do
+    write (Packet 1 1)
+    takeMVar handlerEntered
+    withAsync (N.runNodeT1 node $ N.withSessionT_ (pure 7) Nothing $ do
+      liftIO $ putMVar ackReady ()
+      S.receive) $ \ack -> do
+      takeMVar ackReady
+      N.runNodeT1 node N.stopNodeT
+      handlerDone <- timeout 500000 $ takeMVar handlerExited
+      assert "Node close left a request-handler thread running" $
+        handlerDone == Just ()
+      ackDone <- timeout 500000 $ wait ack
+      assert "Node close left an ACK waiter blocked" $
+        ackDone == Just Nothing
+      mainDone <- timeout 500000 $ wait mainLoop
+      assert "Node close left the receive loop running" $
+        mainDone == Just ()
+      count <- N.getSessionSize1 node
+      assert "Node close retained a completed ACK session" (count == 0)
+
 testClosedSend :: IO ()
 testClosedSend = withNode $ \node _ -> do
   N.runNodeT1 node N.stopNodeT
@@ -179,5 +209,6 @@ main = do
      ("Exclusive session IDs", testExclusiveSessionIds),
      ("Exclusive wait disconnect", testExclusiveWaitDisconnect),
      ("Normal session cleanup", testNormalCleanup),
+     ("Node close drains threads", testNodeCloseDrainsThreads),
      ("Closed connection writes", testClosedSend)]
   assert "Node lifecycle regressions failed" (and results)
